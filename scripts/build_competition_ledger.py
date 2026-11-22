@@ -120,6 +120,42 @@ for rec in records:
     else:
         rec['wechat_note'] = ''
 
+# 湖北大学本科生院教学字〔2026〕5 号目录：按赛事名称规则回填分级。
+# 该目录只有 A2 / B1 / B2，没有 A1 类别。
+OFFICIAL_RULES = [
+    (r'蓝桥杯', 'A2', '官方目录：蓝桥杯全国大学生软件和信息技术大赛'),
+    (r'ICPC|国际大学生程序设计', 'A2', '官方目录：ICPC国际大学生程序设计竞赛'),
+    (r'天梯赛|团体程序设计|中国高校计算机大赛', 'A2', '官方目录：中国高校计算机大赛（含团体程序设计天梯赛）'),
+    (r'百度之星', 'A2', '官方目录：百度之星·程序设计大赛'),
+    (r'睿抗|RAICOM|RoboCom', 'A2', '官方目录：睿抗机器人开发者大赛（RAICOM）'),
+    (r'信息安全与对抗技术竞赛|ISCC', 'A2', '官方目录：全国大学生信息安全与对抗技术竞赛'),
+    (r'全国大学生信息安全竞赛', 'A2', '官方目录：全国大学生信息安全竞赛'),
+    (r'密码数学挑战赛|密码技术竞赛', 'B1', '官方目录：全国高校密码数学挑战赛 / 全国密码技术竞赛'),
+    (r'全国大学生数学竞赛', 'B1', '官方目录：全国大学生数学竞赛'),
+    (r'楚慧杯', 'B2', '官方目录：“楚慧杯”网络空间安全实践能力竞赛'),
+    (r'强网杯', 'B2', '官方目录：“强网杯”全国网络安全挑战赛'),
+    (r'网鼎杯', 'B1', '官方目录：“网鼎杯”网络安全大赛'),
+    (r'长城杯', 'B1', '官方目录：“长城杯”信息安全铁人三项赛'),
+    (r'华为ICT大赛', 'A2', '官方目录：华为ICT大赛'),
+    (r'中国高校智能机器人创意大赛|机器人创意大赛', 'A2', '官方目录：中国高校智能机器人创意大赛'),
+    (r'全国大学生广告艺术大赛', 'A2', '官方目录：全国大学生广告艺术大赛'),
+    (r'中国大学生广告艺术节学院奖', 'B2', '官方目录：中国大学生广告艺术节学院奖'),
+]
+
+
+def classify_official(title):
+    for pattern, level, basis in OFFICIAL_RULES:
+        if re.search(pattern, title, re.I):
+            return level, basis
+    return '未列入目录', '2026 年本科生赛道学科竞赛目录中未找到对应赛事'
+
+
+for rec in records:
+    level, basis = classify_official(rec['title'])
+    rec['official_level'] = level
+    rec['official_basis'] = basis
+    rec['hubei_level'] = level
+
 # duplicate detection by normalized title + date + award
 seen = {}
 for rec in records:
@@ -154,7 +190,8 @@ with open(OUT / 'competition-ledger.json', 'w', encoding='utf-8') as f:
 lines = [
     '# 朱俊好竞赛经历总台账', '',
     f"共 {summary['total']} 条记录；有明确日期 {summary['dated']} 条，日期待确认 {summary['unknown_date']} 条；疑似重复 {summary['duplicates']} 条。", '',
-    '数据来源：本地已核验台账 `catalog.sqlite3`（98 条）+ 原始 Word 历程表（79 行）。核对状态、奖项冲突说明保留在备注中；按“同赛事只取最高奖项”的口径展示时请结合备注判断。', '',
+    '数据来源：本地已核验台账 `catalog.sqlite3`（98 条）+ 原始 Word 历程表（79 行）+ 湖北大学本科生院教学字〔2026〕5 号竞赛目录。核对状态、奖项冲突说明保留在备注中；按“同赛事只取最高奖项”的口径展示时请结合备注判断。', '',
+    '“湖大分级”按 2026 官方目录回填，只有 A2/B1/B2；“未列入目录”表示不在该本科生赛道目录中。', '',
     '## 全部记录', '',
     '| 编号 | 赛事 | 报名时间 | 参赛时间 | 获奖时间 | 湖大分级 | 分组 | 是否获奖 | 奖项 | 成绩/排名 | 地点 | 颁奖单位 | 证据状态 | 备注 |',
     '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
@@ -176,15 +213,15 @@ with open(OUT / 'competition-ledger.md', 'w', encoding='utf-8') as f:
 
 grading_lines = [
     '# 湖北大学竞赛分级确认表', '',
-    '公开渠道未找到湖北大学最新竞赛分级名单原文。下表“原表级别”来自你提供的 Word 历程表，',
-    '只有部分赛事填写了 A1/A2/B1/B2；“待确认”项需要你提供官方名单后批量回填。', '',
-    '| 编号 | 赛事 | 原表级别 | 最新分级（待填） | 奖项 | 证据状态 |',
-    '| --- | --- | --- | --- | --- | --- |',
+    '依据：湖北大学本科生院《教学字〔2026〕5 号 湖北大学本科生赛道（组别）学科竞赛目录》。',
+    '该目录只有 A2 / B1 / B2 三类，没有 A1。能明确对应的赛事已回填；“未列入目录”表示不在 2026 本科生赛道目录中。', '',
+    '| 编号 | 赛事 | 原表级别 | 最新分级 | 分级依据 | 奖项 | 证据状态 |',
+    '| --- | --- | --- | --- | --- | --- | --- |',
 ]
 for r in records:
-    grading_lines.append('| {} | {} | {} |  | {} | {} |'.format(
-        r['id'], r['title'].replace('|', '\\|'), r['hubei_level'],
-        r['award'] or '-', r['evidence_status'] or '-',
+    grading_lines.append('| {} | {} | {} | {} | {} | {} | {} |'.format(
+        r['id'], r['title'].replace('|', '\\|'), r['level'] or '-',
+        r['hubei_level'], r['official_basis'], r['award'] or '-', r['evidence_status'] or '-',
     ))
 with open(OUT / 'hubei-grading-confirmation.md', 'w', encoding='utf-8') as f:
     f.write('\n'.join(grading_lines) + '\n')
@@ -226,6 +263,7 @@ for r in records:
             '参赛时间': r['competition_time_raw'],
             '获奖时间': r['award_time_raw'],
             '湖大分级': r['hubei_level'],
+            '分级依据': r['official_basis'],
             '原表级别': r['level'],
             '是否获奖': '是' if r['awarded'] else '否',
             '奖项': r['award'],
