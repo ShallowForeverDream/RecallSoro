@@ -41,7 +41,18 @@ pnpm tauri dev
 pnpm tauri build
 ```
 
-桌面安装包输出在 `src-tauri/target/release/bundle/`。
+桌面安装包输出在 `src-tauri/target/<target>/release/bundle/`。
+
+> 本机 PATH 默认先命中独立的 `x86_64-pc-windows-gnullvm` Rust 工具链，它缺少配套链接器。已验证可用的构建方式是显式使用 rustup 的 MSVC 工具链：
+>
+> ```bash
+> export PATH="/c/Users/25478/.cargo/bin:$PATH"
+> export LIB='C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.41.34120\lib\x64;D:\Windows Kits\10\Lib\10.0.22621.0\um\x64;D:\Windows Kits\10\Lib\10.0.22621.0\ucrt\x64'
+> export INCLUDE='C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.41.34120\include;D:\Windows Kits\10\Include\10.0.22621.0\um;D:\Windows Kits\10\Include\10.0.22621.0\ucrt;D:\Windows Kits\10\Include\10.0.22621.0\shared'
+> pnpm tauri build --target x86_64-pc-windows-msvc
+> ```
+>
+> 输出示例：`src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/RecallSoro_0.1.0_x64-setup.exe`（约 1.9 MB）和同名 `.msi`（约 2.9 MB）。
 
 ## 数据放在哪里
 
@@ -84,6 +95,17 @@ src/
 src-tauri/        Rust 桌面壳与打包配置
 docs/             产品蓝图、实现规格、调研复用说明
 ```
+
+## 发布到 GitHub
+
+本地仓库已初始化，`origin` 指向 `https://github.com/ShallowForeverDream/RecallSoro.git`。当前 GitHub CLI 的 keyring token 已失效，请在终端先重新登录：
+
+```bash
+gh auth login -h github.com
+gh repo create RecallSoro --private --source=. --remote=origin --push
+```
+
+如果仓库已存在，只需执行 `git push -u origin main`。
 
 ## 路线
 
