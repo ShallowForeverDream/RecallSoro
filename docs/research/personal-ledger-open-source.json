@@ -1,0 +1,445 @@
+[
+ {
+  "archived": false,
+  "description": "A self-hostable bookmark-everything app (links, notes and images) with AI-based automatic tagging and full text search",
+  "full_name": "karakeep-app/karakeep",
+  "homepage": "https://karakeep.com",
+  "language": "TypeScript",
+  "license": "AGPL-3.0",
+  "stargazers_count": 30753,
+  "topics": [
+   "bookmark-manager",
+   "bookmarks",
+   "bookmarks-manager",
+   "nextjs",
+   "react-native",
+   "read-it-later",
+   "self-hosted"
+  ],
+  "updated_at": "2026-11-22T03:24:24Z"
+ },
+ {
+  "archived": false,
+  "description": "Personal CRM. Remember everything about your friends, family and business relationships.",
+  "full_name": "monicahq/monica",
+  "homepage": "https://www.monicahq.com",
+  "language": "PHP",
+  "license": "AGPL-3.0",
+  "stargazers_count": 25824,
+  "topics": [
+   "crm",
+   "family",
+   "friends",
+   "hacktoberfest",
+   "laravel",
+   "php",
+   "prm",
+   "social"
+  ],
+  "updated_at": "2026-11-21T23:19:33Z"
+ },
+ {
+  "archived": false,
+  "description": "⚡️⚡️⚡️ Self-hosted collaborative bookmark manager to collect, read, annotate, and fully preserve what matters, all in one place.",
+  "full_name": "linkwarden/linkwarden",
+  "homepage": "https://linkwarden.app",
+  "language": "TypeScript",
+  "license": "AGPL-3.0",
+  "stargazers_count": 20502,
+  "topics": [
+   "bookmark",
+   "bookmark-manager",
+   "collaboration",
+   "nextjs",
+   "react-native",
+   "read-it-later",
+   "self-hosted",
+   "typescript"
+  ],
+  "updated_at": "2026-11-22T01:37:52Z"
+ },
+ {
+  "archived": true,
+  "description": "Homebox is the inventory and organization system built for the Home User",
+  "full_name": "hay-kot/homebox",
+  "homepage": "https://hay-kot.github.io/homebox/",
+  "language": "Go",
+  "license": "AGPL-3.0",
+  "stargazers_count": 2999,
+  "topics": [
+   "hacktoberfest",
+   "hacktoberfest2022"
+  ],
+  "updated_at": "2026-11-19T22:58:11Z"
+ },
+ {
+  "archived": false,
+  "description": "ERP beyond your fridge - Grocy is a web-based self-hosted groceries & household management solution for your home",
+  "full_name": "grocy/grocy",
+  "homepage": "https://grocy.info",
+  "language": "Blade",
+  "license": "MIT",
+  "stargazers_count": 9701,
+  "topics": [
+   "erp",
+   "food",
+   "groceries",
+   "grocy",
+   "home",
+   "meal-planner",
+   "ownyourdata",
+   "php",
+   "self-hosted"
+  ],
+  "updated_at": "2026-11-21T15:41:02Z"
+ },
+ {
+  "archived": false,
+  "description": "wallabag is a self hostable application for saving web pages: Save and classify articles. Read them later. Freely.",
+  "full_name": "wallabag/wallabag",
+  "homepage": "https://wallabag.org",
+  "language": "PHP",
+  "license": "MIT",
+  "stargazers_count": 13071,
+  "topics": [
+   "hacktoberfest",
+   "php",
+   "read-it-later",
+   "self-hosted",
+   "symfony",
+   "symfony-application",
+   "wallabag"
+  ],
+  "updated_at": "2026-11-22T00:21:35Z"
+ },
+ {
+  "archived": false,
+  "description": "Simple bookmark manager built with Go",
+  "full_name": "go-shiori/shiori",
+  "homepage": "",
+  "language": "Go",
+  "license": "MIT",
+  "stargazers_count": 11880,
+  "topics": [
+   "bookmark-manager",
+   "command-line",
+   "go",
+   "golang",
+   "hacktoberfest",
+   "web-interface"
+  ],
+  "updated_at": "2026-11-22T03:33:41Z"
+ },
+ {
+  "archived": false,
+  "description": "Build your personal knowledge base with Trilium Notes",
+  "full_name": "TriliumNext/Trilium",
+  "homepage": "https://triliumnotes.org",
+  "language": "TypeScript",
+  "license": "AGPL-3.0",
+  "stargazers_count": 39047,
+  "topics": [
+   "electron",
+   "electron-app",
+   "knowledge-base",
+   "knowledge-graph",
+   "knowledge-management",
+   "knowledge-management-graph",
+   "local-first",
+   "note-managment",
+   "note-taker",
+   "note-taking",
+   "notebook",
+   "notes",
+   "notes-app",
+   "personal-knowledge-base",
+   "personal-wiki",
+   "scriptable",
+   "self-hosted",
+   "self-hosting",
+   "wiki"
+  ],
+  "updated_at": "2026-11-22T03:36:57Z"
+ },
+ {
+  "archived": false,
+  "description": "Open Source Inventory Management System",
+  "full_name": "inventree/InvenTree",
+  "homepage": "https://docs.inventree.org",
+  "language": "Python",
+  "license": "MIT",
+  "stargazers_count": 7890,
+  "topics": [
+   "django",
+   "hacktoberfest",
+   "python"
+  ],
+  "updated_at": "2026-11-21T23:56:39Z"
+ },
+ {
+  "archived": false,
+  "description": "An open-source, privacy-first, self-hosted knowledge workspace where humans and AI agents work together 开源、隐私优先、自托管的知识工作空间，让人与智能体在此协作",
+  "full_name": "siyuan-note/siyuan",
+  "homepage": "https://b3log.org/siyuan",
+  "language": "TypeScript",
+  "license": "AGPL-3.0",
+  "stargazers_count": 47337,
+  "topics": [
+   "agentic-ai",
+   "ai-agent",
+   "knowledge-base",
+   "local-first",
+   "markdown",
+   "mcp",
+   "mindmap",
+   "note-taking",
+   "self-hosted",
+   "siyuan",
+   "workspace"
+  ],
+  "updated_at": "2026-11-22T04:09:42Z"
+ },
+ {
+  "archived": false,
+  "description": "The personal, minimalist, super-fast, database free, bookmarking service - community repo",
+  "full_name": "shaarli/Shaarli",
+  "homepage": "https://shaarli.readthedocs.io/",
+  "language": "PHP",
+  "license": "NOASSERTION",
+  "stargazers_count": 3924,
+  "topics": [
+   "bookmarking",
+   "bookmarks",
+   "bookmarks-manager",
+   "self-hosted"
+  ],
+  "updated_at": "2026-11-21T14:37:10Z"
+ },
+ {
+  "archived": false,
+  "description": "Part-DB is an Open source inventory management system for your electronic components",
+  "full_name": "Part-DB/Part-DB-server",
+  "homepage": "https://docs.part-db.de/",
+  "language": "PHP",
+  "license": "AGPL-3.0",
+  "stargazers_count": 1861,
+  "topics": [
+   "database",
+   "electronics",
+   "inventory",
+   "inventory-management",
+   "inventory-management-system",
+   "inventory-system",
+   "mysql",
+   "part-db",
+   "php",
+   "symfony",
+   "symfony-application"
+  ],
+  "updated_at": "2026-11-21T20:37:33Z"
+ },
+ {
+  "archived": false,
+  "description": "Self-hosted, semantically-connected personal knowledge base",
+  "full_name": "kenforthewin/atomic",
+  "homepage": "https://atomicapp.ai",
+  "language": "Rust",
+  "license": "MIT",
+  "stargazers_count": 2014,
+  "topics": [
+   "knowledge-base"
+  ],
+  "updated_at": "2026-11-21T20:32:30Z"
+ },
+ {
+  "archived": false,
+  "description": "LinkAce is a self-hosted archive to collect links of your favorite websites.",
+  "full_name": "Kovah/LinkAce",
+  "homepage": "https://www.linkace.org",
+  "language": "PHP",
+  "license": "GPL-3.0",
+  "stargazers_count": 3356,
+  "topics": [
+   "archive",
+   "archiving",
+   "bookmark-manager",
+   "bookmark-managers",
+   "bookmarking",
+   "bookmarks",
+   "docker",
+   "hacktoberfest",
+   "laravel",
+   "php",
+   "self-hosted",
+   "selfhosted"
+  ],
+  "updated_at": "2026-11-21T09:44:09Z"
+ },
+ {
+  "archived": false,
+  "description": "The fastest knowledge base for growing teams. Beautiful, realtime collaborative, feature packed, and markdown compatible.",
+  "full_name": "outline/outline",
+  "homepage": "https://www.getoutline.com",
+  "language": "TypeScript",
+  "license": "NOASSERTION",
+  "stargazers_count": 41333,
+  "topics": [
+   "docker",
+   "javascript",
+   "mobx",
+   "nodejs",
+   "react",
+   "slack",
+   "wiki"
+  ],
+  "updated_at": "2026-11-22T03:48:21Z"
+ },
+ {
+  "archived": false,
+  "description": "A free open source IT asset/license management system",
+  "full_name": "grokability/snipe-it",
+  "homepage": "https://snipeitapp.com",
+  "language": "PHP",
+  "license": "AGPL-3.0",
+  "stargazers_count": 15221,
+  "topics": [
+   "asset-management",
+   "asset-manager",
+   "assets-management",
+   "itam",
+   "license-management"
+  ],
+  "updated_at": "2026-11-21T22:19:18Z"
+ },
+ {
+  "archived": false,
+  "description": "Docmost is an open-source collaborative wiki and documentation software. It is an open-source alternative to Confluence and Notion.",
+  "full_name": "docmost/docmost",
+  "homepage": "https://docmost.com",
+  "language": "TypeScript",
+  "license": "AGPL-3.0",
+  "stargazers_count": 22395,
+  "topics": [
+   "ai",
+   "ai-agents",
+   "collaborative",
+   "confluence",
+   "document",
+   "documentation",
+   "documents",
+   "dot",
+   "dots",
+   "drawio",
+   "knowledge-base",
+   "mediawiki",
+   "miro",
+   "notion",
+   "notion-alternative",
+   "open-source",
+   "opensource",
+   "quip",
+   "realtime-collaboration",
+   "wiki"
+  ],
+  "updated_at": "2026-11-22T02:07:02Z"
+ },
+ {
+  "archived": false,
+  "description": "A local-first personal finance app",
+  "full_name": "actualbudget/actual",
+  "homepage": "https://actualbudget.org",
+  "language": "TypeScript",
+  "license": "MIT",
+  "stargazers_count": 30394,
+  "topics": [
+   "budgeting",
+   "finance",
+   "money",
+   "personal-finance"
+  ],
+  "updated_at": "2026-11-22T03:28:40Z"
+ },
+ {
+  "archived": false,
+  "description": "Firefly III: a personal finances manager",
+  "full_name": "firefly-iii/firefly-iii",
+  "homepage": "https://firefly-iii.org/",
+  "language": "PHP",
+  "license": "AGPL-3.0",
+  "stargazers_count": 25311,
+  "topics": [
+   "accounting",
+   "budget",
+   "budgeting",
+   "budgets",
+   "cash-flow",
+   "cashflow",
+   "credit-card",
+   "docker",
+   "expenses",
+   "finance",
+   "finances",
+   "financial",
+   "linux",
+   "money",
+   "paycheck",
+   "personal-finance",
+   "php",
+   "php7"
+  ],
+  "updated_at": "2026-11-22T02:57:39Z"
+ },
+ {
+  "archived": false,
+  "description": "NOW MANAGED ON CODEBERG",
+  "full_name": "BookStackApp/BookStack",
+  "homepage": "https://codeberg.org/bookstack/bookstack",
+  "language": "PHP",
+  "license": "MIT",
+  "stargazers_count": 19148,
+  "topics": [
+   "bookstack",
+   "documentation",
+   "laravel",
+   "php",
+   "selfhosted",
+   "wiki"
+  ],
+  "updated_at": "2026-11-21T14:46:24Z"
+ },
+ {
+  "query": "homebox-org/homebox",
+  "error": "gh: Not Found (HTTP 404)\n"
+ },
+ {
+  "archived": false,
+  "description": "Build your personal knowledge base with Trilium Notes",
+  "full_name": "TriliumNext/Trilium",
+  "homepage": "https://triliumnotes.org",
+  "language": "TypeScript",
+  "license": "AGPL-3.0",
+  "stargazers_count": 39047,
+  "topics": [
+   "electron",
+   "electron-app",
+   "knowledge-base",
+   "knowledge-graph",
+   "knowledge-management",
+   "knowledge-management-graph",
+   "local-first",
+   "note-managment",
+   "note-taker",
+   "note-taking",
+   "notebook",
+   "notes",
+   "notes-app",
+   "personal-knowledge-base",
+   "personal-wiki",
+   "scriptable",
+   "self-hosted",
+   "self-hosting",
+   "wiki"
+  ],
+  "updated_at": "2026-11-22T03:36:57Z"
+ }
+]

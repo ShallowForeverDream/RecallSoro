@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "RecallSoro 个人经历台账架构",
+    "locale": "zh-CN",
+    "subtitle": "素材只保存一份，事件与模板通过关系生成不同视图",
+    "output": "recallsoro-architecture.html",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "person", "type": "external", "label": "我", "sublabel": "浏览器 / 手机", "icon": "person", "pos": [40, 300], "size": [120, 64] },
+    { "id": "web", "type": "frontend", "label": "Web / PWA", "sublabel": "收件箱、时间线、卡片", "icon": "frontend", "pos": [230, 300], "size": [160, 68] },
+    { "id": "auth", "type": "security", "label": "登录与加密", "sublabel": "单用户空间", "icon": "security", "pos": [230, 120], "size": [160, 64], "tag": "隐私边界" },
+    { "id": "api", "type": "backend", "label": "API 服务", "sublabel": "上传、关系、查询、导出", "icon": "backend", "pos": [460, 300], "size": [160, 68] },
+    { "id": "core", "type": "backend", "label": "事件与模板服务", "sublabel": "Capture / Fact / Experience / View", "icon": "backend", "pos": [690, 300], "size": [190, 72], "tag": "信息只存一份" },
+    { "id": "db", "type": "database", "label": "PostgreSQL", "sublabel": "元数据、关系、审计", "icon": "database", "pos": [950, 300], "size": [170, 68] },
+    { "id": "blob", "type": "cloud", "label": "对象存储", "sublabel": "原图、视频、PDF、缩略图", "icon": "cloud", "pos": [690, 470], "size": [190, 68] },
+    { "id": "queue", "type": "messagebus", "label": "任务队列", "sublabel": "OCR、缩略图、索引", "icon": "messagebus", "pos": [460, 120], "size": [160, 64] },
+    { "id": "worker", "type": "backend", "label": "识别 Worker", "sublabel": "哈希、EXIF、OCR、候选聚类", "icon": "backend", "pos": [690, 120], "size": [190, 68] },
+    { "id": "index", "type": "database", "label": "搜索索引", "sublabel": "关键词、标签、全文", "icon": "database", "pos": [950, 470], "size": [170, 68] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "RecallSoro 私人空间", "wraps": ["web", "auth", "api", "core", "db", "blob", "queue", "worker", "index"], "pad": 26 },
+    { "kind": "security-group", "label": "受保护的应用边界", "wraps": ["web", "auth", "api", "core", "queue", "worker"], "pad": 18 }
+  ],
+  "connections": [
+    { "id": "person-web", "from": "person", "to": "web", "label": "浏览与编辑", "variant": "emphasis" },
+    { "id": "web-api", "from": "web", "to": "api", "label": "HTTPS" },
+    { "id": "auth-api", "from": "auth", "to": "api", "label": "验证身份", "variant": "security", "fromSide": "right", "toSide": "top" },
+    { "id": "api-core", "from": "api", "to": "core", "label": "创建与查询" },
+    { "id": "core-db", "from": "core", "to": "db", "label": "保存关系与字段" },
+    { "id": "api-blob", "from": "api", "to": "blob", "label": "上传原件", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "api-queue", "from": "api", "to": "queue", "label": "提交异步任务", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "id": "queue-worker", "from": "queue", "to": "worker", "label": "消费任务", "variant": "dashed" },
+    { "id": "worker-core", "from": "worker", "to": "core", "label": "生成候选结果", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "worker-index", "from": "worker", "to": "index", "label": "更新搜索索引", "variant": "dashed", "fromSide": "right", "toSide": "top" },
+    { "id": "core-index", "from": "core", "to": "index", "label": "检索素材与描述", "fromSide": "bottom", "toSide": "left" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "资料底座", "items": ["原始文件进入对象存储", "元数据和关系进入 PostgreSQL", "删除页面只解除关系"] },
+    { "dot": "emerald", "title": "模板视图", "items": ["竞赛、旅行、自定义模板共用 Event", "卡片和时间线按关系聚合", "模板字段只保存补充信息"] },
+    { "dot": "rose", "title": "识别边界", "items": ["Worker 只生成归类建议", "用户在智能收件箱确认结果", "原始描述不会被模型覆盖"] }
+  ]
+}
