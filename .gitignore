@@ -9,3 +9,5 @@ Thumbs.db
 .dsh-meow/
 .vite/
 *.log
+*.tsbuildinfo
+app-icon.png
