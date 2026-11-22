@@ -88,11 +88,19 @@ for rec in records:
         rec['issuer'] = w['issuer']
         rec['level'] = w['level']
         rec['register_time'] = w['register_time']
+        rec['competition_time_raw'] = w['competition_time']
+        rec['award_time_raw'] = w['award_time']
     else:
         rec['location'] = ''
         rec['issuer'] = ''
         rec['level'] = ''
         rec['register_time'] = ''
+        rec['competition_time_raw'] = ''
+        rec['award_time_raw'] = ''
+    # 原表“级别”列即旧版分级；最新湖大分级尚未取得官方名单，先保留原值并标记待确认。
+    raw_level = (rec['level'] or '').strip()
+    rec['hubei_level'] = raw_level if raw_level in {'A1', 'A2', 'B1', 'B2'} else '待确认'
+    rec['awarded'] = bool(rec['award'] and rec['award'] not in {'-', '—', '未开始', '未公布', '待确认'})
 
 # WeChat-derived evidence (user-authorized read). Only high-confidence, non-award facts.
 WECHAT_NOTES = {
@@ -130,7 +138,12 @@ summary = {
     'by_evidence': {},
     'duplicates': sum(1 for r in records if r['duplicate_of']),
     'wechat_enriched': sum(1 for r in records if r['wechat_note']),
+    'awarded': sum(1 for r in records if r['awarded']),
+    'by_hubei_level': {},
 }
+for r in records:
+    level = r['hubei_level']
+    summary['by_hubei_level'][level] = summary['by_hubei_level'].get(level, 0) + 1
 for r in records:
     summary['by_group'][r['group'] or '未分组'] = summary['by_group'].get(r['group'] or '未分组', 0) + 1
     summary['by_evidence'][r['evidence_status'] or '未标注'] = summary['by_evidence'].get(r['evidence_status'] or '未标注', 0) + 1
@@ -143,22 +156,38 @@ lines = [
     f"共 {summary['total']} 条记录；有明确日期 {summary['dated']} 条，日期待确认 {summary['unknown_date']} 条；疑似重复 {summary['duplicates']} 条。", '',
     '数据来源：本地已核验台账 `catalog.sqlite3`（98 条）+ 原始 Word 历程表（79 行）。核对状态、奖项冲突说明保留在备注中；按“同赛事只取最高奖项”的口径展示时请结合备注判断。', '',
     '## 全部记录', '',
-    '| 编号 | 赛事 | 时间 | 级别/分组 | 奖项 | 成绩/排名 | 证据状态 | 地点 | 备注 |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    '| 编号 | 赛事 | 报名时间 | 参赛时间 | 获奖时间 | 湖大分级 | 分组 | 是否获奖 | 奖项 | 成绩/排名 | 地点 | 颁奖单位 | 证据状态 | 备注 |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
 ]
 for r in records:
     note = r['notes']
     if r['legacy_notes'] and r['legacy_notes'] not in note:
         note = (note + ' ' + r['legacy_notes']).strip()
     note = note.replace('|', '\\|')
-    lines.append('| {} | {} | {} | {} | {} | {} | {} | {} | {} |'.format(
-        r['id'], r['title'].replace('|', '\\|'), r['date'] or r['date_raw'] or '待确认',
-        ' / '.join(filter(None, [r['level'], r['group']])) or '-',
+    lines.append('| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |'.format(
+        r['id'], r['title'].replace('|', '\\|'), r['register_time'] or '-',
+        r['competition_time_raw'] or '-', r['award_time_raw'] or r['date_raw'] or '-',
+        r['hubei_level'], r['group'] or '未分组', '是' if r['awarded'] else '否',
         r['award'] or '-', ' / '.join(filter(None, [r['score'], r['rank']])) or '-',
-        r['evidence_status'] or '-', r['location'] or '-', note[:180],
+        r['location'] or '-', r['issuer'] or '-', r['evidence_status'] or '-', note[:180],
     ))
 with open(OUT / 'competition-ledger.md', 'w', encoding='utf-8') as f:
     f.write('\n'.join(lines) + '\n')
+
+grading_lines = [
+    '# 湖北大学竞赛分级确认表', '',
+    '公开渠道未找到湖北大学最新竞赛分级名单原文。下表“原表级别”来自你提供的 Word 历程表，',
+    '只有部分赛事填写了 A1/A2/B1/B2；“待确认”项需要你提供官方名单后批量回填。', '',
+    '| 编号 | 赛事 | 原表级别 | 最新分级（待填） | 奖项 | 证据状态 |',
+    '| --- | --- | --- | --- | --- | --- |',
+]
+for r in records:
+    grading_lines.append('| {} | {} | {} |  | {} | {} |'.format(
+        r['id'], r['title'].replace('|', '\\|'), r['hubei_level'],
+        r['award'] or '-', r['evidence_status'] or '-',
+    ))
+with open(OUT / 'hubei-grading-confirmation.md', 'w', encoding='utf-8') as f:
+    f.write('\n'.join(grading_lines) + '\n')
 
 # RecallSoro backup import package
 now_iso = datetime.now(timezone.utc).isoformat()
@@ -192,6 +221,24 @@ for r in records:
         'status': 'archived' if r['archived'] else 'active',
         'tags': [x for x in [r['group'], r['category'], r['evidence_status']] if x],
         'captureIds': [],
+        'customFields': {
+            '报名时间': r['register_time'],
+            '参赛时间': r['competition_time_raw'],
+            '获奖时间': r['award_time_raw'],
+            '湖大分级': r['hubei_level'],
+            '原表级别': r['level'],
+            '是否获奖': '是' if r['awarded'] else '否',
+            '奖项': r['award'],
+            '成绩': r['score'],
+            '排名': r['rank'],
+            '比赛地点': r['location'],
+            '颁奖单位': r['issuer'],
+            '证书照片': '待补：请在收件箱上传证书并关联' if r['awarded'] else '无',
+            '奖牌照片': '待补：请在收件箱上传奖牌并关联' if r['awarded'] else '无',
+            '合照': '待补：请在收件箱上传合照并关联',
+            '相关图片': '待补：请把其他佐证图片放进收件箱并关联',
+            '备注': r['notes'],
+        },
         'createdAt': now_iso,
         'updatedAt': now_iso,
     })

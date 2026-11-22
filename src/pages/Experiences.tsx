@@ -21,7 +21,7 @@ export function Experiences() {
     await db.experiences.put({
       id, title: '未命名经历', description: '', startAt: undefined, endAt: undefined,
       timePrecision: 'unknown', location: '', status: 'draft', tags: [], captureIds: [],
-      createdAt: now(), updatedAt: now(),
+      customFields: {}, createdAt: now(), updatedAt: now(),
     });
     navigate(`/experiences/${id}`);
   };
@@ -95,6 +95,31 @@ export function ExperienceDetail() {
     await db.experiences.put(next);
   };
 
+  const fields = exp?.customFields ?? {};
+
+  const addCustomField = () => {
+    if (!exp) return;
+    const key = `字段${Object.keys(fields).length + 1}`;
+    setExp({ ...exp, customFields: { ...fields, [key]: '' } });
+  };
+
+  const changeCustomField = (oldKey: string, nextKey: string, value: string) => {
+    if (!exp) return;
+    const next: Record<string, string> = {};
+    for (const [k, v] of Object.entries(fields)) {
+      if (k === oldKey) next[nextKey] = value;
+      else next[k] = v;
+    }
+    setExp({ ...exp, customFields: next });
+  };
+
+  const removeCustomField = (key: string) => {
+    if (!exp) return;
+    const next = { ...fields };
+    delete next[key];
+    setExp({ ...exp, customFields: next });
+  };
+
   const sortedAttached = useMemo(() => attached.slice().sort((a, b) => (a.capturedAt ?? a.importedAt).localeCompare(b.capturedAt ?? b.importedAt)), [attached]);
 
   if (!exp) return <div className="page"><Empty icon={<Sparkles size={34} />} title="经历不存在" desc="它可能已被删除。" /></div>;
@@ -125,6 +150,20 @@ export function ExperienceDetail() {
           </Field>
           <Field label="地点"><input value={exp.location} onChange={(e) => setExp({ ...exp, location: e.target.value })} placeholder="城市、场地或机构" /></Field>
           <Field label="标签" hint="用逗号分隔"><input value={exp.tags.join(', ')} onChange={(e) => setExp({ ...exp, tags: e.target.value.split(/[,，\s]+/).filter(Boolean) })} /></Field>
+          <div className="custom-block">
+            <div className="panel-head">
+              <h3>自定义字段</h3>
+              <button className="btn small" onClick={addCustomField}><Plus size={14} /> 添加字段</button>
+            </div>
+            {Object.entries(fields).map(([key, value]) => (
+              <div key={key} className="custom-row">
+                <input value={key} onChange={(e) => changeCustomField(key, e.target.value, value)} placeholder="字段名" />
+                <input value={value} onChange={(e) => changeCustomField(key, key, e.target.value)} placeholder="内容" />
+                <button className="icon-btn" title="删除字段" onClick={() => removeCustomField(key)}><Trash2 size={14} /></button>
+              </div>
+            ))}
+            <p className="hint-box">可填“证书”“奖牌”“合照”“相关图片”“湖大分级”等。照片请先放入收件箱，再关联到本经历。</p>
+          </div>
         </div>
 
         <div className="panel">

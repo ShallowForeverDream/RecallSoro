@@ -42,6 +42,7 @@ export interface Experience {
   status: 'draft' | 'active' | 'archived';
   tags: string[];
   captureIds: string[];
+  customFields: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 }

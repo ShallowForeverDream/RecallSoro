@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, Briefcase, GraduationCap, LayoutGrid, Link2, Map, Plus, Sparkles, Trophy,
+  ArrowLeft, BookOpen, Briefcase, GraduationCap, LayoutGrid, Link2, Map, Plus, Sparkles, Trophy,
 } from 'lucide-react';
 import { db } from '../db';
 import type { Collection, Experience, Capture, Template } from '../types';
 import { captureSortKey, now, recordHistory, uid } from '../lib/utils';
 import { Chip, Empty, Field, Modal, PageHead, useToast } from '../components/common';
 
-const iconMap: Record<string, typeof Trophy> = { Trophy, Map, Briefcase, GraduationCap, Sparkles };
+const iconMap: Record<string, typeof Trophy> = { Trophy, Map, Briefcase, GraduationCap, Sparkles, BookOpen };
 
 export function Collections() {
   const navigate = useNavigate();

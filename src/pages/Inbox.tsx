@@ -137,6 +137,7 @@ export default function Inbox() {
       status: 'draft',
       tags: selected.tags,
       captureIds: [selected.id],
+      customFields: {},
       createdAt: now(),
       updatedAt: now(),
     });

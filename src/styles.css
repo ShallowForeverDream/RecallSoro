@@ -177,6 +177,9 @@ h1, h2, h3, p { margin: 0; }
 .panel-head h3 { margin: 0; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .hint-box { background: #f5f8fc; border-left: 3px solid var(--accent); padding: 9px 12px; font-size: 11.5px; color: var(--ink-2); margin-top: 10px; line-height: 1.6; }
+.custom-block { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; }
+.custom-row { display: grid; grid-template-columns: 130px 1fr 28px; gap: 8px; margin-bottom: 8px; align-items: center; }
+.custom-row input { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; }
 .attached-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
 .attached-card { position: relative; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .attached-card img { width: 100%; height: 88px; object-fit: cover; display: block; }

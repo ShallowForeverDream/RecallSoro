@@ -1,6 +1,6 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import type { Capture, Fact, Template } from '../types';
-import { db, type HistoryRecord } from '../db';
+import { db, SYSTEM_TEMPLATES, type HistoryRecord } from '../db';
 
 export const uid = () => crypto.randomUUID();
 export const now = () => new Date().toISOString();
@@ -229,7 +229,7 @@ export async function importBackup(file: File) {
       await db.captures.put({ ...c, blob });
     }
     await db.experiences.bulkPut(meta.experiences as never[]);
-    await db.templates.bulkPut(meta.templates);
+    await db.templates.bulkPut(meta.templates.length ? meta.templates : SYSTEM_TEMPLATES);
     await db.collections.bulkPut(meta.collections as never[]);
     await db.relations.bulkPut(meta.relations as never[]);
     await db.settings.bulkPut(meta.settings as never[]);
