@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FileText, FolderOpen, Image, Link2, Plus, UploadCloud, Video, X } from 'lucide-react';
 import { db } from '../db';
 import type { Capture, CaptureKind } from '../types';
-import { captureFromFile, captureFromLink, captureFromText, humanSize, uid, now } from '../lib/utils';
+import { captureFromFile, captureFromLink, captureFromText, humanSize, recordHistory, uid, now } from '../lib/utils';
 import { Chip, Empty, Field, Modal, PageHead, useToast } from '../components/common';
 
 function CapturePreview({ capture }: { capture: Capture }) {
@@ -116,6 +116,7 @@ export default function Inbox() {
       capturedAt: draft.capturedAt || undefined,
       tags: draft.tags.split(/[,，\s]+/).filter(Boolean),
     };
+    await recordHistory('capture', selected.id, selected);
     await db.captures.put(updated);
     setSelected(updated);
     await reload();

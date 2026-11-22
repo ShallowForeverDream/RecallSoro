@@ -1,6 +1,14 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { Capture, Collection, Experience, Relation, Setting, Template } from './types';
 
+export interface HistoryRecord {
+  id: string;
+  entityType: 'capture' | 'experience' | 'collection';
+  entityId: string;
+  snapshot: unknown;
+  createdAt: string;
+}
+
 class RecallDatabase extends Dexie {
   captures!: EntityTable<Capture, 'id'>;
   experiences!: EntityTable<Experience, 'id'>;
@@ -8,6 +16,7 @@ class RecallDatabase extends Dexie {
   collections!: EntityTable<Collection, 'id'>;
   relations!: EntityTable<Relation, 'id'>;
   settings!: EntityTable<Setting, 'key'>;
+  history!: EntityTable<HistoryRecord, 'id'>;
 
   constructor() {
     super('recallsoro');
@@ -18,6 +27,9 @@ class RecallDatabase extends Dexie {
       collections: 'id, templateId, updatedAt',
       relations: 'id, fromId, toId, relationType',
       settings: 'key',
+    });
+    this.version(2).stores({
+      history: 'id, entityType, entityId, createdAt',
     });
   }
 }

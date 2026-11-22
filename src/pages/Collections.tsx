@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { db } from '../db';
 import type { Collection, Experience, Capture, Template } from '../types';
-import { captureSortKey, now, uid } from '../lib/utils';
+import { captureSortKey, now, recordHistory, uid } from '../lib/utils';
 import { Chip, Empty, Field, Modal, PageHead, useToast } from '../components/common';
 
 const iconMap: Record<string, typeof Trophy> = { Trophy, Map, Briefcase, GraduationCap, Sparkles };
@@ -136,6 +136,7 @@ export function CollectionDetail() {
 
   const update = async (next: Collection) => {
     setCol(next);
+    await recordHistory('collection', next.id, col);
     await db.collections.put({ ...next, updatedAt: now() });
   };
 

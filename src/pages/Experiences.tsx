@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, CalendarDays, Link2, Plus, Save, Sparkles, Trash2 } from 'lucide-react';
 import { db } from '../db';
 import type { Capture, Experience, TimePrecision } from '../types';
-import { now, uid } from '../lib/utils';
+import { now, recordHistory, uid } from '../lib/utils';
 import { Chip, Empty, Field, Modal, PageHead, useToast } from '../components/common';
 
 const precisionLabel: Record<TimePrecision, string> = {
@@ -79,6 +79,7 @@ export function ExperienceDetail() {
 
   const save = async () => {
     if (!exp) return;
+    await recordHistory('experience', exp.id, exp);
     await db.experiences.put({ ...exp, updatedAt: now() });
     toast('已保存经历');
   };
@@ -90,6 +91,7 @@ export function ExperienceDetail() {
       : [...exp.captureIds, captureId];
     const next = { ...exp, captureIds: ids, updatedAt: now() };
     setExp(next);
+    await recordHistory('experience', exp.id, exp);
     await db.experiences.put(next);
   };
 

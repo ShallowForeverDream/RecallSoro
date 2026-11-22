@@ -45,7 +45,13 @@ export default function Timeline() {
         data: c,
       });
     }
-    return list.sort((a, b) => b.date.localeCompare(a.date));
+    const rank = (d: string) => (/^\d{4}/.test(d) ? 1 : 0);
+    return list.sort((a, b) => {
+      const ra = rank(a.date);
+      const rb = rank(b.date);
+      if (ra !== rb) return rb - ra;
+      return b.date.localeCompare(a.date);
+    });
   }, [experiences, captures]);
 
   const years = useMemo(() => Array.from(new Set(items.map((i) => i.date.slice(0, 4)))).filter((y) => /^\d{4}$/.test(y)).sort().reverse(), [items]);

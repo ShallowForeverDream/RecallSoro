@@ -50,6 +50,7 @@ export default function Settings() {
         <div className="panel">
           <div className="panel-head"><h3>备份与迁移</h3><Database size={18} /></div>
           <p className="muted small">导出为 ZIP，包含元数据 JSON 和全部原件。导入会覆盖当前数据，请先确认备份。</p>
+          <p className="hint-box">导出不自动脱敏。原件可能包含身份证号、学号、签名和二维码，分享前请自行检查。</p>
           <button className="btn primary wide" disabled={busy} onClick={() => void doExport()}><Download size={16} /> 导出完整备份</button>
           <Field label="从备份恢复">
             <input type="file" accept=".zip" onChange={(e) => { const f = e.target.files?.[0]; if (f) void doImport(f); }} />

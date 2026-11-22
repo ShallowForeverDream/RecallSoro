@@ -1,6 +1,6 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import type { Capture, Fact, Template } from '../types';
-import { db } from '../db';
+import { db, type HistoryRecord } from '../db';
 
 export const uid = () => crypto.randomUUID();
 export const now = () => new Date().toISOString();
@@ -42,6 +42,20 @@ async function imageSize(blob: Blob): Promise<string | undefined> {
   }
 }
 
+export async function recordHistory(
+  entityType: HistoryRecord['entityType'],
+  entityId: string,
+  snapshot: unknown,
+) {
+  await db.history.put({
+    id: uid(),
+    entityType,
+    entityId,
+    snapshot: JSON.parse(JSON.stringify(snapshot)) as unknown,
+    createdAt: now(),
+  });
+}
+
 export function extractFacts(c: Pick<Capture, 'originalName' | 'text' | 'url' | 'mimeType' | 'kind'>): Fact[] {
   const facts: Fact[] = [];
   const push = (type: Fact['type'], value: string, confidence: number, source: Fact['source'] = 'local') => {
@@ -71,7 +85,7 @@ export async function captureFromFile(file: File, source: string): Promise<Captu
     sizeBytes: file.size,
     sha256,
     source,
-    capturedAt: normalizeDate(file.name),
+    capturedAt: undefined,
     importedAt: now(),
     status: 'ready',
     title: file.name.replace(/\.[^.]+$/, ''),
@@ -84,6 +98,8 @@ export async function captureFromFile(file: File, source: string): Promise<Captu
     if (size) base.facts.push({ id: uid(), type: 'dimensions', value: size, confidence: 1, source: 'local', createdAt: now() });
   }
   base.facts.push(...extractFacts(base));
+  // 文件名里的日期只是线索，不替用户确定事件时间。
+  for (const f of base.facts) if (f.type === 'date') f.confidence = 0.5;
   return base;
 }
 
