@@ -96,16 +96,29 @@ src-tauri/        Rust 桌面壳与打包配置
 docs/             产品蓝图、实现规格、调研复用说明
 ```
 
-## 发布到 GitHub
+## GitHub
 
-本地仓库已初始化，`origin` 指向 `https://github.com/ShallowForeverDream/RecallSoro.git`。当前 GitHub CLI 的 keyring token 已失效，请在终端先重新登录：
+私有仓库已创建并推送：`https://github.com/ShallowForeverDream/RecallSoro`。
+
+后续更新直接执行：
 
 ```bash
-gh auth login -h github.com
-gh repo create RecallSoro --private --source=. --remote=origin --push
+git add -A
+git commit -m "feat: 说明改动"
+git push
 ```
 
-如果仓库已存在，只需执行 `git push -u origin main`。
+## 冒烟测试
+
+构建产物已用 Edge 无头模式通过 CDP 验证：写入快速记录 → IndexedDB 出现 Capture → 打开详情 → 创建经历 → 路由跳转到经历编辑器且 IndexedDB 出现 Experience。
+
+```bash
+pnpm preview --host 127.0.0.1 --port 4173
+# 另开终端启动 headless Edge（调试端口 9222），再运行：
+node scripts/cdp-smoke.mjs
+```
+
+`scripts/capture-window.ps1` 可以在不抢占前台的情况下抓取 RecallSoro 窗口截图。
 
 ## 路线
 
