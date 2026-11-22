@@ -47,8 +47,11 @@ export const SYSTEM_TEMPLATES: Template[] = [
     createdAt: '2026-01-01T00:00:00.000Z',
     fields: [
       { key: 'registerTime', label: '报名时间', type: 'text', placeholder: '2026.3' },
-      { key: 'competitionTime', label: '参赛时间', type: 'text', placeholder: '2026.5' },
+      { key: 'competitionTime', label: '比赛时间', type: 'text', placeholder: '2026.5' },
       { key: 'awardTime', label: '获奖时间', type: 'text', placeholder: '2026-5-24' },
+      { key: 'eventType', label: '个人赛/团队赛', type: 'text', placeholder: '个人赛 / 团队赛' },
+      { key: 'teamLeader', label: '团队赛负责人', type: 'text', placeholder: '队长或负责人姓名' },
+      { key: 'advisor', label: '指导老师', type: 'text', placeholder: '指导教师姓名' },
       { key: 'hubeiLevel', label: '湖大分级', type: 'text', placeholder: 'A1 / A2 / B1 / B2 / 待确认' },
       { key: 'level', label: '级别', type: 'text', placeholder: '校级 / 省级 / 国家级 / 国际级' },
       { key: 'awarded', label: '是否获奖', type: 'text', placeholder: '是 / 否 / 待核实' },

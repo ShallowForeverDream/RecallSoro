@@ -193,17 +193,21 @@ lines = [
     '数据来源：本地已核验台账 `catalog.sqlite3`（98 条）+ 原始 Word 历程表（79 行）+ 湖北大学本科生院教学字〔2026〕5 号竞赛目录。核对状态、奖项冲突说明保留在备注中；按“同赛事只取最高奖项”的口径展示时请结合备注判断。', '',
     '“湖大分级”按 2026 官方目录回填，只有 A2/B1/B2；“未列入目录”表示不在该本科生赛道目录中。', '',
     '## 全部记录', '',
-    '| 编号 | 赛事 | 报名时间 | 参赛时间 | 获奖时间 | 湖大分级 | 分组 | 是否获奖 | 奖项 | 成绩/排名 | 地点 | 颁奖单位 | 证据状态 | 备注 |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    '| 编号 | 赛事 | 报名时间 | 比赛时间 | 获奖时间 | 个人赛/团队赛 | 团队赛负责人 | 指导老师 | 湖大分级 | 分组 | 是否获奖 | 奖项 | 成绩/排名 | 地点 | 颁奖单位 | 证据状态 | 备注 |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
 ]
 for r in records:
     note = r['notes']
     if r['legacy_notes'] and r['legacy_notes'] not in note:
         note = (note + ' ' + r['legacy_notes']).strip()
     note = note.replace('|', '\\|')
-    lines.append('| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |'.format(
+    m = re.search(r'指导老师为([^；，,。]+)', r['notes'])
+    advisor = m.group(1).strip() if m else '待补充'
+    event_type = '团队赛' if '团队' in r['title'] or '团体' in r['title'] else '个人赛' if '个人' in r['title'] else '待补充'
+    lines.append('| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |'.format(
         r['id'], r['title'].replace('|', '\\|'), r['register_time'] or '-',
         r['competition_time_raw'] or '-', r['award_time_raw'] or r['date_raw'] or '-',
+        event_type, '待补充', advisor,
         r['hubei_level'], r['group'] or '未分组', '是' if r['awarded'] else '否',
         r['award'] or '-', ' / '.join(filter(None, [r['score'], r['rank']])) or '-',
         r['location'] or '-', r['issuer'] or '-', r['evidence_status'] or '-', note[:180],
@@ -260,8 +264,11 @@ for r in records:
         'captureIds': [],
         'customFields': {
             '报名时间': r['register_time'],
-            '参赛时间': r['competition_time_raw'],
+            '比赛时间': r['competition_time_raw'],
             '获奖时间': r['award_time_raw'],
+            '个人赛/团队赛': ('团队赛' if '团队' in r['title'] or '团体' in r['title'] else '个人赛' if '个人' in r['title'] else '待补充'),
+            '团队赛负责人': '待补充',
+            '指导老师': (re.search(r'指导老师为([^；，,。]+)', r['notes']).group(1).strip() if re.search(r'指导老师为([^；，,。]+)', r['notes']) else '待补充'),
             '湖大分级': r['hubei_level'],
             '分级依据': r['official_basis'],
             '原表级别': r['level'],
