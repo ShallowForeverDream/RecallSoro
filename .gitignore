@@ -11,3 +11,5 @@ Thumbs.db
 *.log
 *.tsbuildinfo
 app-icon.png
+.oldsession.jsonl
+.oldsession-text.txt
