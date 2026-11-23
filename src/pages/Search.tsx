@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, LayoutGrid, Search as SearchIcon, Sparkles } from 'lucide-react';
+import { FileText, LayoutGrid, Search as SearchIcon, Sparkles, Trophy } from 'lucide-react';
 import { db } from '../db';
 import type { Capture, Collection, Experience } from '../types';
+import { getCompField, gradeTone, isCompetitionExperience } from '../lib/competition';
 import { Chip, Empty, PageHead } from '../components/common';
 
 type Result = {
   id: string;
   type: 'capture' | 'experience' | 'collection';
+  isComp?: boolean;
+  grade?: string;
   title: string;
   desc: string;
   to: string;
@@ -17,12 +20,22 @@ type Result = {
 export default function Search() {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
-  const [data, setData] = useState<{ captures: Capture[]; experiences: Experience[]; collections: Collection[] }>({
-    captures: [], experiences: [], collections: [],
+  const [data, setData] = useState<{
+    captures: Capture[];
+    experiences: Experience[];
+    collections: Collection[];
+  }>({
+    captures: [],
+    experiences: [],
+    collections: [],
   });
 
   useEffect(() => {
-    void Promise.all([db.captures.toArray(), db.experiences.toArray(), db.collections.toArray()]).then(([c, e, col]) => {
+    void Promise.all([
+      db.captures.toArray(),
+      db.experiences.toArray(),
+      db.collections.toArray(),
+    ]).then(([c, e, col]) => {
       setData({ captures: c, experiences: e, collections: col });
     });
   }, []);
@@ -31,22 +44,57 @@ export default function Search() {
     const q = query.trim().toLowerCase();
     if (!q) return [];
     const out: Result[] = [];
-    for (const c of data.captures) {
-      const hay = [c.title, c.originalName, c.note, c.text ?? '', c.url ?? '', ...c.tags, ...c.facts.map((f) => f.value)].join(' ');
+    for (const e of data.experiences) {
+      const cfValues = Object.values(e.customFields ?? {});
+      const hay = [e.title, e.description, e.location, e.startAt ?? '', ...e.tags, ...cfValues].join(' ');
       if (hay.toLowerCase().includes(q)) {
-        out.push({ id: c.id, type: 'capture', title: c.title, desc: c.note || c.originalName, to: '/', match: hay.slice(0, 160) });
+        const isComp = isCompetitionExperience(e);
+        const grade = isComp ? getCompField(e, '湖大分级') : '';
+        const award = isComp ? getCompField(e, '奖项') : '';
+        out.push({
+          id: e.id,
+          type: 'experience',
+          isComp,
+          grade,
+          title: e.title,
+          desc: [e.startAt, award, e.description].filter(Boolean).join(' · '),
+          to: `/experiences/${e.id}`,
+          match: hay.slice(0, 160),
+        });
       }
     }
-    for (const e of data.experiences) {
-      const hay = [e.title, e.description, e.location, ...e.tags].join(' ');
+    for (const c of data.captures) {
+      const hay = [
+        c.title,
+        c.originalName,
+        c.note,
+        c.text ?? '',
+        c.url ?? '',
+        ...c.tags,
+        ...c.facts.map((f) => f.value),
+      ].join(' ');
       if (hay.toLowerCase().includes(q)) {
-        out.push({ id: e.id, type: 'experience', title: e.title, desc: e.description, to: `/experiences/${e.id}`, match: hay.slice(0, 160) });
+        out.push({
+          id: c.id,
+          type: 'capture',
+          title: c.title,
+          desc: c.note || c.originalName,
+          to: '/',
+          match: hay.slice(0, 160),
+        });
       }
     }
     for (const c of data.collections) {
       const hay = [c.title, c.description, ...Object.values(c.fieldValues)].join(' ');
       if (hay.toLowerCase().includes(q)) {
-        out.push({ id: c.id, type: 'collection', title: c.title, desc: c.description, to: `/collections/${c.id}`, match: hay.slice(0, 160) });
+        out.push({
+          id: c.id,
+          type: 'collection',
+          title: c.title,
+          desc: c.description,
+          to: `/collections/${c.id}`,
+          match: hay.slice(0, 160),
+        });
       }
     }
     return out;
@@ -54,29 +102,71 @@ export default function Search() {
 
   return (
     <div className="page">
-      <PageHead title="搜索" subtitle="同时搜索标题、描述、备注、OCR 文字、地点和标签" />
+      <PageHead
+        title="全局搜索"
+        subtitle="同时检索标题、竞赛级别、奖项、颁奖单位、备注、标签和原件文件名"
+      />
       <div className="search-hero">
-        <SearchIcon size={22} />
-        <input autoFocus placeholder="输入关键词、地点、年份或标签…" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <SearchIcon size={20} />
+        <input
+          autoFocus
+          placeholder="试试输入：A1、蓝桥杯、一等奖、网安、2025…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
       </div>
 
       {!query.trim() ? (
-        <Empty icon={<SearchIcon size={34} />} title="想找什么？" desc="输入一个词， RecallSoro 会在全部经历和资料中查找。" />
+        <Empty
+          icon={<SearchIcon size={34} />}
+          title="想找哪条经历或证书？"
+          desc="输入任意关键词，RecallSoro 会在所有台账字段、经历和收件箱原件中即时查找。"
+        />
       ) : results.length === 0 ? (
-        <Empty icon={<SearchIcon size={34} />} title="没有找到结果" desc="换个词试试，或者检查标签是否写对。" />
+        <Empty
+          icon={<SearchIcon size={34} />}
+          title="没有找到匹配结果"
+          desc="可以换个简称、年份或奖项关键词试试。"
+        />
       ) : (
         <>
-          <p className="muted">找到 {results.length} 条结果</p>
+          <p className="muted small" style={{ marginBottom: 12 }}>
+            找到 <strong>{results.length}</strong> 条相关记录
+          </p>
           <div className="card-list">
             {results.map((r) => {
-              const Icon = r.type === 'capture' ? FileText : r.type === 'experience' ? Sparkles : LayoutGrid;
+              const Icon =
+                r.isComp
+                  ? Trophy
+                  : r.type === 'capture'
+                    ? FileText
+                    : r.type === 'experience'
+                      ? Sparkles
+                      : LayoutGrid;
               return (
-                <button key={`${r.type}-${r.id}`} className="list-card" onClick={() => navigate(r.to)}>
-                  <div className="list-card-icon"><Icon size={20} /></div>
+                <button
+                  key={`${r.type}-${r.id}`}
+                  className="list-card"
+                  onClick={() => navigate(r.to, { state: { from: '/search' } })}
+                >
+                  <div className={`list-card-icon ${r.isComp ? 'is-gold' : ''}`}>
+                    <Icon size={18} />
+                  </div>
                   <div className="list-card-main">
                     <div className="list-card-title">{r.title}</div>
                     <p>{r.desc || r.match}</p>
-                    <div className="row-gap"><Chip tone="accent">{r.type === 'capture' ? '资料' : r.type === 'experience' ? '经历' : '集合'}</Chip></div>
+                    <div className="row-gap">
+                      {r.grade && <Chip tone={gradeTone(r.grade)}>{r.grade}</Chip>}
+                      <Chip tone="accent">
+                        {r.isComp
+                          ? '竞赛经历'
+                          : r.type === 'capture'
+                            ? '原件资料'
+                            : r.type === 'experience'
+                              ? '经历'
+                              : '台账集合'}
+                      </Chip>
+                    </div>
                   </div>
                 </button>
               );

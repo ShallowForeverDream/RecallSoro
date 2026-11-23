@@ -1,56 +1,262 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CalendarDays, Link2, Plus, Save, Sparkles, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import {
+  ArrowLeft,
+  CalendarDays,
+  Eye,
+  Image as ImageIcon,
+  Link2,
+  Plus,
+  Save,
+  Search,
+  Sparkles,
+  Trash2,
+  Trophy,
+  UploadCloud,
+} from 'lucide-react';
 import { db } from '../db';
-import type { Capture, Experience, TimePrecision } from '../types';
-import { now, recordHistory, uid } from '../lib/utils';
+import type { Capture, Experience, Template, TimePrecision } from '../types';
+import { now, recordHistory, saveFileCaptureDedup, uid } from '../lib/utils';
+import {
+  auditCompetition,
+  EVIDENCE_SLOTS,
+  getCompField,
+  gradeTone,
+  isAwarded,
+  isCompetitionExperience,
+  setCompField,
+} from '../lib/competition';
 import { Chip, Empty, Field, Modal, PageHead, useToast } from '../components/common';
 
 const precisionLabel: Record<TimePrecision, string> = {
-  exact: '精确到日', day: '某日', month: '某月', year: '某年', range: '时间段', unknown: '待确认',
+  exact: '精确到日',
+  day: '某日',
+  month: '某月',
+  year: '某年',
+  range: '时间段',
+  unknown: '待确认',
 };
+
+function CaptureThumbBox({
+  capture,
+  onPreview,
+  onRemove,
+}: {
+  capture: Capture;
+  onPreview: (c: Capture) => void;
+  onRemove: () => void;
+}) {
+  const [url, setUrl] = useState('');
+  useEffect(() => {
+    if (capture.kind !== 'image' || !capture.blob) return;
+    const u = URL.createObjectURL(capture.blob);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [capture.kind, capture.blob]);
+
+  return (
+    <div className="attached-card">
+      <button type="button" className="attached-media-btn" onClick={() => onPreview(capture)}>
+        {url ? (
+          <img src={url} alt={capture.title} />
+        ) : (
+          <div className="attached-icon">
+            <CalendarDays size={20} />
+          </div>
+        )}
+        <span className="attached-zoom">
+          <Eye size={13} />
+        </span>
+      </button>
+      <div className="attached-title" title={capture.title}>
+        {capture.title}
+      </div>
+      <button
+        type="button"
+        className="attached-remove"
+        title="解除关联（不删除收件箱原件）"
+        onClick={onRemove}
+      >
+        <Trash2 size={13} />
+      </button>
+    </div>
+  );
+}
+
+function LightboxPreview({ capture }: { capture: Capture }) {
+  const [url, setUrl] = useState('');
+  useEffect(() => {
+    if (!capture.blob) return;
+    const u = URL.createObjectURL(capture.blob);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [capture.blob]);
+
+  if (capture.kind === 'image' && url) {
+    return <img className="lightbox-img" src={url} alt={capture.title} />;
+  }
+  if (url) {
+    return (
+      <div className="preview-file">
+        <p>{capture.originalName}</p>
+        <a className="btn primary" href={url} download={capture.originalName}>
+          下载原件
+        </a>
+      </div>
+    );
+  }
+  return <p className="muted">{capture.text || capture.note || '无预览内容'}</p>;
+}
 
 export function Experiences() {
   const navigate = useNavigate();
   const [items, setItems] = useState<Experience[]>([]);
-  const reload = () => void db.experiences.orderBy('updatedAt').reverse().toArray().then(setItems);
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<'all' | 'competition' | 'issues' | 'archived'>('all');
+
+  const reload = () =>
+    void db.experiences.orderBy('updatedAt').reverse().toArray().then(setItems);
   useEffect(reload, []);
 
   const create = async () => {
     const id = uid();
     await db.experiences.put({
-      id, title: '未命名经历', description: '', startAt: undefined, endAt: undefined,
-      timePrecision: 'unknown', location: '', status: 'draft', tags: [], captureIds: [],
-      customFields: {}, createdAt: now(), updatedAt: now(),
+      id,
+      title: '未命名经历',
+      description: '',
+      startAt: undefined,
+      endAt: undefined,
+      timePrecision: 'unknown',
+      location: '',
+      status: 'active',
+      tags: [],
+      captureIds: [],
+      customFields: {},
+      evidenceSlots: {},
+      createdAt: now(),
+      updatedAt: now(),
     });
     navigate(`/experiences/${id}`);
   };
 
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return items.filter((e) => {
+      if (filter === 'competition' && !isCompetitionExperience(e)) return false;
+      if (filter === 'archived' && e.status !== 'archived') return false;
+      if (filter !== 'archived' && e.status === 'archived') return false;
+      if (filter === 'issues') {
+        const a = auditCompetition(e);
+        if (a.issues.length === 0) return false;
+      }
+      if (!q) return true;
+      const hay = [
+        e.title,
+        e.description,
+        e.location,
+        e.startAt ?? '',
+        ...e.tags,
+        ...Object.values(e.customFields ?? {}),
+      ]
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [items, query, filter]);
+
   return (
     <div className="page">
-      <PageHead title="经历" subtitle="把零散资料整理成一段真实经历" actions={
-        <button className="btn primary" onClick={() => void create()}><Plus size={16} /> 新建经历</button>
-      } />
-      {items.length === 0 ? (
-        <Empty icon={<Sparkles size={34} />} title="还没有经历" desc="从收件箱里选一条资料创建经历，或直接新建。" action={
-          <button className="btn primary" onClick={() => void create()}>新建经历</button>
-        } />
-      ) : (
-        <div className="card-list">
-          {items.map((e) => (
-            <button key={e.id} className="list-card" onClick={() => navigate(`/experiences/${e.id}`)}>
-              <div className="list-card-icon"><Sparkles size={20} /></div>
-              <div className="list-card-main">
-                <div className="list-card-title">{e.title}</div>
-                <p>{e.description || '还没有描述'}</p>
-                <div className="row-gap">
-                  <Chip tone={e.status === 'archived' ? 'neutral' : 'accent'}>{e.status === 'archived' ? '已归档' : '进行中'}</Chip>
-                  <span className="muted small">{e.startAt ?? '时间待确认'} · {precisionLabel[e.timePrecision]}</span>
-                  <span className="muted small">{e.captureIds.length} 条资料</span>
-                </div>
-              </div>
+      <PageHead
+        title="全部经历"
+        subtitle="将零散的照片、证书、文字整理成结构化的真实经历"
+        actions={
+          <button className="btn primary" onClick={() => void create()}>
+            <Plus size={15} /> 新建经历
+          </button>
+        }
+      />
+
+      <div className="toolbar">
+        <div className="search-box" style={{ maxWidth: 380 }}>
+          <Search size={15} />
+          <input
+            placeholder="搜索标题、奖项、地点、标签…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        <div className="filters">
+          {(
+            [
+              ['all', '进行中'],
+              ['competition', '竞赛'],
+              ['issues', '待补齐'],
+              ['archived', '已归档'],
+            ] as const
+          ).map(([k, label]) => (
+            <button
+              key={k}
+              className={`filter-btn ${filter === k ? 'active' : ''}`}
+              onClick={() => setFilter(k)}
+            >
+              {label}
             </button>
           ))}
+        </div>
+      </div>
+
+      {visible.length === 0 ? (
+        <Empty
+          icon={<Sparkles size={34} />}
+          title="没有找到经历"
+          desc="从收件箱挑一条资料创建经历，或直接新建。"
+          action={
+            <button className="btn primary" onClick={() => void create()}>
+              新建经历
+            </button>
+          }
+        />
+      ) : (
+        <div className="card-list">
+          {visible.map((e) => {
+            const isComp = isCompetitionExperience(e);
+            const grade = isComp ? getCompField(e, '湖大分级') : '';
+            const award = isComp ? getCompField(e, '奖项') : '';
+            const audit = isComp ? auditCompetition(e) : null;
+
+            return (
+              <button
+                key={e.id}
+                className="list-card"
+                onClick={() => navigate(`/experiences/${e.id}`)}
+              >
+                <div className={`list-card-icon ${isComp ? 'is-gold' : ''}`}>
+                  {isComp ? <Trophy size={18} /> : <Sparkles size={18} />}
+                </div>
+                <div className="list-card-main">
+                  <div className="list-card-head">
+                    <div className="list-card-title">{e.title}</div>
+                    <span className="muted small tabular">{e.startAt ?? '时间待确认'}</span>
+                  </div>
+                  {(e.description || award) && (
+                    <p>{e.description || [award, getCompField(e, '颁奖单位')].filter(Boolean).join(' · ')}</p>
+                  )}
+                  <div className="row-gap">
+                    {grade && <Chip tone={gradeTone(grade)}>{grade}</Chip>}
+                    {award && <Chip tone="gold">{award}</Chip>}
+                    {e.captureIds.length > 0 ? (
+                      <Chip tone="emerald">{e.captureIds.length} 份佐证</Chip>
+                    ) : audit?.missingCertificate ? (
+                      <Chip tone="danger">缺证书</Chip>
+                    ) : null}
+                    {e.tags.slice(0, 3).map((t) => (
+                      <Chip key={t}>{t}</Chip>
+                    ))}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -60,149 +266,573 @@ export function Experiences() {
 export function ExperienceDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const toast = useToast();
+
   const [exp, setExp] = useState<Experience | null>(null);
-  const [attached, setAttached] = useState<Capture[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [allCaptures, setAllCaptures] = useState<Capture[]>([]);
-  const [pickOpen, setPickOpen] = useState(false);
+  const [pickTargetSlot, setPickTargetSlot] = useState<string | null>(null);
+  const [previewCap, setPreviewCap] = useState<Capture | null>(null);
+  const slotFileRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const backTo = (location.state as { from?: string } | null)?.from ?? '/experiences';
+
+  const reload = async () => {
+    if (!id) return;
+    const [e, tpls, caps] = await Promise.all([
+      db.experiences.get(id),
+      db.templates.toArray(),
+      db.captures.orderBy('importedAt').reverse().toArray(),
+    ]);
+    setExp(e ?? null);
+    setTemplates(tpls);
+    setAllCaptures(caps);
+  };
 
   useEffect(() => {
-    if (!id) return;
-    void db.experiences.get(id).then((e) => setExp(e ?? null));
-    void db.captures.toArray().then(setAllCaptures);
+    void reload();
   }, [id]);
 
-  useEffect(() => {
-    if (!exp) return;
-    void db.captures.bulkGet(exp.captureIds).then((rows) => setAttached(rows.filter(Boolean) as Capture[]));
-  }, [exp]);
+  const captureMap = useMemo(() => new Map(allCaptures.map((c) => [c.id, c])), [allCaptures]);
 
-  const save = async () => {
-    if (!exp) return;
-    await recordHistory('experience', exp.id, exp);
-    await db.experiences.put({ ...exp, updatedAt: now() });
-    toast('已保存经历');
-  };
-
-  const toggleCapture = async (captureId: string) => {
-    if (!exp) return;
-    const ids = exp.captureIds.includes(captureId)
-      ? exp.captureIds.filter((x) => x !== captureId)
-      : [...exp.captureIds, captureId];
-    const next = { ...exp, captureIds: ids, updatedAt: now() };
-    setExp(next);
-    await recordHistory('experience', exp.id, exp);
-    await db.experiences.put(next);
-  };
-
-  const fields = exp?.customFields ?? {};
-
-  const addCustomField = () => {
-    if (!exp) return;
-    const key = `字段${Object.keys(fields).length + 1}`;
-    setExp({ ...exp, customFields: { ...fields, [key]: '' } });
-  };
-
-  const changeCustomField = (oldKey: string, nextKey: string, value: string) => {
-    if (!exp) return;
-    const next: Record<string, string> = {};
-    for (const [k, v] of Object.entries(fields)) {
-      if (k === oldKey) next[nextKey] = value;
-      else next[k] = v;
+  const activeTemplate = useMemo(() => {
+    if (!exp) return null;
+    if (exp.templateId) return templates.find((t) => t.id === exp.templateId) ?? null;
+    if (isCompetitionExperience(exp)) {
+      return templates.find((t) => t.id === 'tpl-competition') ?? null;
     }
-    setExp({ ...exp, customFields: next });
+    return null;
+  }, [exp, templates]);
+
+  const templateFieldGroups = useMemo(() => {
+    if (!activeTemplate) return [];
+    const groups = new Map<string, typeof activeTemplate.fields>();
+    for (const f of activeTemplate.fields) {
+      if (f.type === 'evidence') continue;
+      const g = f.group ?? '模板字段';
+      const arr = groups.get(g) ?? [];
+      arr.push(f);
+      groups.set(g, arr);
+    }
+    return Array.from(groups.entries());
+  }, [activeTemplate]);
+
+  const extraCustomKeys = useMemo(() => {
+    if (!exp) return [];
+    const known = new Set<string>(
+      (activeTemplate?.fields ?? []).map((f) => f.key),
+    );
+    for (const slot of EVIDENCE_SLOTS) known.add(slot.key);
+    return Object.keys(exp.customFields ?? {}).filter((k) => !known.has(k));
+  }, [exp, activeTemplate]);
+
+  const persist = async (next: Experience, message?: string) => {
+    setExp(next);
+    if (exp) await recordHistory('experience', next.id, exp);
+    await db.experiences.put({ ...next, updatedAt: now() });
+    if (message) toast(message);
   };
 
-  const removeCustomField = (key: string) => {
+  const handleSlotUpload = async (slotKey: string, files: FileList | File[]) => {
     if (!exp) return;
-    const next = { ...fields };
-    delete next[key];
-    setExp({ ...exp, customFields: next });
+    const list = Array.from(files);
+    if (list.length === 0) return;
+
+    const addedIds: string[] = [];
+    const addedTitles: string[] = [];
+    for (const f of list) {
+      const { capture } = await saveFileCaptureDedup(f, 'experience_slot');
+      addedIds.push(capture.id);
+      addedTitles.push(capture.title);
+    }
+
+    const prevSlots = exp.evidenceSlots ?? {};
+    const nextSlotIds = Array.from(new Set([...(prevSlots[slotKey] ?? []), ...addedIds]));
+    const nextCapIds = Array.from(new Set([...exp.captureIds, ...addedIds]));
+    const existingText = getCompField(exp, slotKey);
+    const mergedText = Array.from(
+      new Set([
+        ...(existingText ? existingText.split(/[,，;；]\s*/).filter(Boolean) : []),
+        ...addedTitles,
+      ]),
+    ).join('，');
+
+    const next: Experience = {
+      ...exp,
+      captureIds: nextCapIds,
+      evidenceSlots: { ...prevSlots, [slotKey]: nextSlotIds },
+      customFields: setCompField(exp, slotKey, mergedText),
+      updatedAt: now(),
+    };
+    await persist(next, `已上传并关联到「${slotKey}」`);
+    await reload();
   };
 
-  const sortedAttached = useMemo(() => attached.slice().sort((a, b) => (a.capturedAt ?? a.importedAt).localeCompare(b.capturedAt ?? b.importedAt)), [attached]);
+  const toggleCaptureInSlot = async (slotKey: string, captureId: string) => {
+    if (!exp) return;
+    if (slotKey === '__all__') {
+      const exists = exp.captureIds.includes(captureId);
+      const nextIds = exists
+        ? exp.captureIds.filter((x) => x !== captureId)
+        : [...exp.captureIds, captureId];
+      const nextSlots: Record<string, string[]> = { ...(exp.evidenceSlots ?? {}) };
+      if (exists) {
+        for (const k of Object.keys(nextSlots)) {
+          nextSlots[k] = nextSlots[k].filter((x) => x !== captureId);
+        }
+      }
+      await persist({ ...exp, captureIds: nextIds, evidenceSlots: nextSlots });
+      return;
+    }
 
-  if (!exp) return <div className="page"><Empty icon={<Sparkles size={34} />} title="经历不存在" desc="它可能已被删除。" /></div>;
+    const prevSlots = exp.evidenceSlots ?? {};
+    const cur = prevSlots[slotKey] ?? [];
+    const exists = cur.includes(captureId);
+    const nextSlotIds = exists ? cur.filter((x) => x !== captureId) : [...cur, captureId];
+    const nextCapIds = exists
+      ? exp.captureIds
+      : Array.from(new Set([...exp.captureIds, captureId]));
+    const titles = nextSlotIds
+      .map((cid) => captureMap.get(cid)?.title)
+      .filter(Boolean)
+      .join('，');
+
+    await persist({
+      ...exp,
+      captureIds: nextCapIds,
+      evidenceSlots: { ...prevSlots, [slotKey]: nextSlotIds },
+      customFields: setCompField(exp, slotKey, titles),
+    });
+  };
+
+  if (!exp) {
+    return (
+      <div className="page">
+        <Empty icon={<Sparkles size={34} />} title="经历不存在" desc="它可能已被删除。" />
+      </div>
+    );
+  }
+
+  const isComp = isCompetitionExperience(exp);
+  const audit = isComp ? auditCompetition(exp) : null;
+  const attachedAll = exp.captureIds
+    .map((cid) => captureMap.get(cid))
+    .filter(Boolean) as Capture[];
 
   return (
-    <div className="page">
-      <button className="btn ghost back" onClick={() => navigate('/experiences')}><ArrowLeft size={16} /> 返回经历列表</button>
-      <PageHead title={exp.title} subtitle="编辑这段经历的信息，并关联收件箱里的资料" actions={
-        <>
-          <button className="btn" onClick={() => void save()}><Save size={16} /> 保存</button>
-          <button className="btn ghost" onClick={async () => { setExp({ ...exp, status: exp.status === 'archived' ? 'active' : 'archived' }); await db.experiences.put({ ...exp, status: exp.status === 'archived' ? 'active' : 'archived', updatedAt: now() }); }}>{exp.status === 'archived' ? '恢复' : '归档'}</button>
-        </>
-      } />
+    <div className="page page-wide">
+      <button className="btn ghost back" onClick={() => navigate(backTo)}>
+        <ArrowLeft size={15} /> 返回上一页
+      </button>
 
-      <div className="editor-grid">
-        <div className="panel">
-          <h3>基本信息</h3>
-          <Field label="标题"><input value={exp.title} onChange={(e) => setExp({ ...exp, title: e.target.value })} /></Field>
-          <Field label="描述"><textarea rows={5} value={exp.description} onChange={(e) => setExp({ ...exp, description: e.target.value })} placeholder="发生了什么，你记住了什么" /></Field>
-          <div className="two-col">
-            <Field label="开始时间"><input placeholder="2026-03-15" value={exp.startAt ?? ''} onChange={(e) => setExp({ ...exp, startAt: e.target.value || undefined })} /></Field>
-            <Field label="结束时间"><input placeholder="可留空" value={exp.endAt ?? ''} onChange={(e) => setExp({ ...exp, endAt: e.target.value || undefined })} /></Field>
-          </div>
-          <Field label="时间精度">
-            <select value={exp.timePrecision} onChange={(e) => setExp({ ...exp, timePrecision: e.target.value as TimePrecision })}>
-              {Object.entries(precisionLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
-          </Field>
-          <Field label="地点"><input value={exp.location} onChange={(e) => setExp({ ...exp, location: e.target.value })} placeholder="城市、场地或机构" /></Field>
-          <Field label="标签" hint="用逗号分隔"><input value={exp.tags.join(', ')} onChange={(e) => setExp({ ...exp, tags: e.target.value.split(/[,，\s]+/).filter(Boolean) })} /></Field>
-          <div className="custom-block">
-            <div className="panel-head">
-              <h3>自定义字段</h3>
-              <button className="btn small" onClick={addCustomField}><Plus size={14} /> 添加字段</button>
-            </div>
-            {Object.entries(fields).map(([key, value]) => (
-              <div key={key} className="custom-row">
-                <input value={key} onChange={(e) => changeCustomField(key, e.target.value, value)} placeholder="字段名" />
-                <input value={value} onChange={(e) => changeCustomField(key, key, e.target.value)} placeholder="内容" />
-                <button className="icon-btn" title="删除字段" onClick={() => removeCustomField(key)}><Trash2 size={14} /></button>
-              </div>
+      <PageHead
+        title={exp.title}
+        subtitle={
+          isComp
+            ? '补充赛事分级、奖项与证书原件，修改后点击右上角保存'
+            : '编辑这段经历的详细信息，并关联收件箱里的原件资料'
+        }
+        badge={
+          <div className="row-gap">
+            {isComp && getCompField(exp, '湖大分级') && (
+              <Chip tone={gradeTone(getCompField(exp, '湖大分级'))}>
+                {getCompField(exp, '湖大分级')}
+              </Chip>
+            )}
+            {isComp && isAwarded(exp) && getCompField(exp, '奖项') && (
+              <Chip tone="gold">{getCompField(exp, '奖项')}</Chip>
+            )}
+            {audit?.issues.map((issue) => (
+              <Chip key={issue} tone="danger">
+                {issue}
+              </Chip>
             ))}
-            <p className="hint-box">可填“证书”“奖牌”“合照”“相关图片”“湖大分级”等。照片请先放入收件箱，再关联到本经历。</p>
           </div>
+        }
+        actions={
+          <>
+            <button className="btn primary" onClick={() => void persist(exp, '已保存经历')}>
+              <Save size={15} /> 保存修改
+            </button>
+            <button
+              className="btn"
+              onClick={() =>
+                void persist(
+                  { ...exp, status: exp.status === 'archived' ? 'active' : 'archived' },
+                  exp.status === 'archived' ? '已恢复' : '已归档',
+                )
+              }
+            >
+              {exp.status === 'archived' ? '恢复' : '归档'}
+            </button>
+          </>
+        }
+      />
+
+      <div className="editor-layout">
+        <div className="editor-main">
+          <section className="panel">
+            <div className="panel-head">
+              <h3>基础信息</h3>
+              <select
+                className="select compact"
+                value={exp.templateId ?? (isComp ? 'tpl-competition' : 'tpl-general')}
+                onChange={(e) => setExp({ ...exp, templateId: e.target.value })}
+              >
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    模板：{t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <Field label="标题">
+              <input
+                value={exp.title}
+                onChange={(e) => setExp({ ...exp, title: e.target.value })}
+              />
+            </Field>
+
+            <div className="three-col">
+              <Field label="开始时间">
+                <input
+                  placeholder="2026-03-15"
+                  value={exp.startAt ?? ''}
+                  onChange={(e) => setExp({ ...exp, startAt: e.target.value || undefined })}
+                />
+              </Field>
+              <Field label="结束时间">
+                <input
+                  placeholder="可留空"
+                  value={exp.endAt ?? ''}
+                  onChange={(e) => setExp({ ...exp, endAt: e.target.value || undefined })}
+                />
+              </Field>
+              <Field label="时间精度">
+                <select
+                  value={exp.timePrecision}
+                  onChange={(e) =>
+                    setExp({ ...exp, timePrecision: e.target.value as TimePrecision })
+                  }
+                >
+                  {Object.entries(precisionLabel).map(([k, v]) => (
+                    <option key={k} value={k}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+
+            <div className="two-col">
+              <Field label="地点">
+                <input
+                  value={exp.location}
+                  onChange={(e) => setExp({ ...exp, location: e.target.value })}
+                  placeholder="城市、场馆或线上"
+                />
+              </Field>
+              <Field label="标签" hint="用逗号分隔，例如：竞赛, 算法">
+                <input
+                  value={exp.tags.join(', ')}
+                  onChange={(e) =>
+                    setExp({
+                      ...exp,
+                      tags: e.target.value.split(/[,，\s]+/).filter(Boolean),
+                    })
+                  }
+                />
+              </Field>
+            </div>
+
+            <Field label="经历概述">
+              <textarea
+                rows={3}
+                value={exp.description}
+                onChange={(e) => setExp({ ...exp, description: e.target.value })}
+                placeholder="补充这段经历的背景、过程或关键记忆"
+              />
+            </Field>
+          </section>
+
+          {templateFieldGroups.map(([groupName, fields]) => (
+            <section key={groupName} className="panel">
+              <h3>{groupName}</h3>
+              <div className="form-grid-2">
+                {fields.map((f) => {
+                  const val = getCompField(exp, f.key);
+                  const isWide = f.type === 'textarea';
+                  return (
+                    <div key={f.key} className={isWide ? 'span-2' : ''}>
+                      <Field label={f.label}>
+                        {f.type === 'textarea' ? (
+                          <textarea
+                            rows={3}
+                            placeholder={f.placeholder}
+                            value={val}
+                            onChange={(e) =>
+                              setExp({
+                                ...exp,
+                                customFields: setCompField(exp, f.key, e.target.value),
+                              })
+                            }
+                          />
+                        ) : (
+                          <input
+                            placeholder={f.placeholder}
+                            value={val}
+                            onChange={(e) =>
+                              setExp({
+                                ...exp,
+                                customFields: setCompField(exp, f.key, e.target.value),
+                              })
+                            }
+                          />
+                        )}
+                      </Field>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+
+          <section className="panel">
+            <div className="panel-head">
+              <h3>其他扩展字段</h3>
+              <button
+                className="btn small"
+                onClick={() => {
+                  const key = `扩展字段${extraCustomKeys.length + 1}`;
+                  setExp({
+                    ...exp,
+                    customFields: { ...(exp.customFields ?? {}), [key]: '' },
+                  });
+                }}
+              >
+                <Plus size={14} /> 添加字段
+              </button>
+            </div>
+            {extraCustomKeys.length === 0 ? (
+              <p className="muted small">没有额外自定义字段，需要时可点击右上角添加。</p>
+            ) : (
+              extraCustomKeys.map((key) => {
+                const value = exp.customFields[key] ?? '';
+                return (
+                  <div key={key} className="custom-row">
+                    <input
+                      value={key}
+                      onChange={(e) => {
+                        const next: Record<string, string> = {};
+                        for (const [k, v] of Object.entries(exp.customFields)) {
+                          next[k === key ? e.target.value : k] = v;
+                        }
+                        setExp({ ...exp, customFields: next });
+                      }}
+                      placeholder="字段名"
+                    />
+                    <input
+                      value={value}
+                      onChange={(e) =>
+                        setExp({
+                          ...exp,
+                          customFields: { ...exp.customFields, [key]: e.target.value },
+                        })
+                      }
+                      placeholder="内容"
+                    />
+                    <button
+                      className="icon-btn"
+                      title="删除字段"
+                      onClick={() => {
+                        const next = { ...exp.customFields };
+                        delete next[key];
+                        setExp({ ...exp, customFields: next });
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </section>
         </div>
 
-        <div className="panel">
-          <div className="panel-head">
-            <h3>关联资料 <span className="muted">({attached.length})</span></h3>
-            <button className="btn small" onClick={() => setPickOpen(true)}><Link2 size={14} /> 关联资料</button>
-          </div>
-          {sortedAttached.length === 0 ? (
-            <p className="muted">还没有关联资料。可以从收件箱挑选照片、文件或文字。</p>
-          ) : (
-            <div className="attached-grid">
-              {sortedAttached.map((c) => (
-                <div key={c.id} className="attached-card">
-                  {c.kind === 'image' && c.blob ? <img src={URL.createObjectURL(c.blob)} alt="" /> : <div className="attached-icon"><CalendarDays size={22} /></div>}
-                  <div className="attached-title" title={c.title}>{c.title}</div>
-                  <button className="attached-remove" title="只解除关联，不删除原资料" onClick={() => void toggleCapture(c.id)}><Trash2 size={14} /></button>
-                </div>
-              ))}
-            </div>
+        <aside className="editor-side">
+          {isComp && (
+            <section className="panel">
+              <div className="panel-head">
+                <h3>佐证材料槽位</h3>
+                <span className="muted small">拖图即自动归档并去重</span>
+              </div>
+              <div className="slot-list">
+                {EVIDENCE_SLOTS.map((slot) => {
+                  const slotIds = exp.evidenceSlots?.[slot.key] ?? [];
+                  const slotCaps = slotIds
+                    .map((cid) => captureMap.get(cid))
+                    .filter(Boolean) as Capture[];
+                  const legacyText = getCompField(exp, slot.key);
+
+                  return (
+                    <div
+                      key={slot.key}
+                      className="evidence-slot"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (e.dataTransfer.files.length) {
+                          void handleSlotUpload(slot.key, e.dataTransfer.files);
+                        }
+                      }}
+                    >
+                      <div className="evidence-slot-head">
+                        <div>
+                          <strong>{slot.label}</strong>
+                          <span className="muted small" style={{ marginLeft: 6 }}>
+                            {slotCaps.length} 份
+                          </span>
+                        </div>
+                        <div className="row-gap">
+                          <button
+                            type="button"
+                            className="btn small"
+                            onClick={() => slotFileRefs.current[slot.key]?.click()}
+                          >
+                            <UploadCloud size={13} /> 上传
+                          </button>
+                          <button
+                            type="button"
+                            className="btn small ghost"
+                            onClick={() => setPickTargetSlot(slot.key)}
+                          >
+                            <Link2 size={13} /> 选图
+                          </button>
+                          <input
+                            ref={(el) => {
+                              slotFileRefs.current[slot.key] = el;
+                            }}
+                            type="file"
+                            multiple
+                            accept="image/*,.pdf"
+                            hidden
+                            onChange={(e) => {
+                              if (e.target.files?.length) {
+                                void handleSlotUpload(slot.key, e.target.files);
+                              }
+                              e.target.value = '';
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      {slotCaps.length > 0 ? (
+                        <div className="attached-grid compact-grid">
+                          {slotCaps.map((c) => (
+                            <CaptureThumbBox
+                              key={c.id}
+                              capture={c}
+                              onPreview={setPreviewCap}
+                              onRemove={() => void toggleCaptureInSlot(slot.key, c.id)}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="slot-empty">
+                          <ImageIcon size={15} />
+                          <span>
+                            {legacyText
+                              ? `已有文字线索：${legacyText}（可拖入原图）`
+                              : `拖入${slot.label}，或点击右上角上传`}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
           )}
-          <p className="hint-box">解除关联只会移除这条关系，原始资料仍保留在收件箱中。</p>
-        </div>
+
+          <section className="panel">
+            <div className="panel-head">
+              <h3>
+                全部关联资料 <span className="muted">({attachedAll.length})</span>
+              </h3>
+              <button className="btn small" onClick={() => setPickTargetSlot('__all__')}>
+                <Link2 size={13} /> 关联资料
+              </button>
+            </div>
+            {attachedAll.length === 0 ? (
+              <p className="muted small">还没有关联任何资料。解除关联不会删除收件箱原件。</p>
+            ) : (
+              <div className="attached-grid">
+                {attachedAll.map((c) => (
+                  <CaptureThumbBox
+                    key={c.id}
+                    capture={c}
+                    onPreview={setPreviewCap}
+                    onRemove={() => void toggleCaptureInSlot('__all__', c.id)}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </aside>
       </div>
 
-      {pickOpen && (
-        <Modal title="从收件箱关联资料" onClose={() => setPickOpen(false)} wide>
+      {pickTargetSlot && (
+        <Modal
+          title={
+            pickTargetSlot === '__all__'
+              ? '从收件箱关联资料'
+              : `选择资料关联到「${pickTargetSlot}」`
+          }
+          onClose={() => setPickTargetSlot(null)}
+          wide
+        >
           <div className="picker">
-            {allCaptures.length === 0 ? <p className="muted">收件箱还没有资料。</p> : allCaptures.map((c) => {
-              const checked = exp.captureIds.includes(c.id);
-              return (
-                <button key={c.id} className={`picker-row ${checked ? 'checked' : ''}`} onClick={() => void toggleCapture(c.id)}>
-                  <span className="picker-check">{checked ? '✓' : ''}</span>
-                  <span className="picker-name">{c.title}</span>
-                  <span className="muted small">{c.capturedAt ?? c.importedAt.slice(0, 10)}</span>
-                </button>
-              );
-            })}
+            {allCaptures.length === 0 ? (
+              <p className="muted" style={{ padding: 16 }}>
+                收件箱里还没有资料，你可以直接拖拽图片到右侧槽位上传。
+              </p>
+            ) : (
+              allCaptures.map((c) => {
+                const checked =
+                  pickTargetSlot === '__all__'
+                    ? exp.captureIds.includes(c.id)
+                    : (exp.evidenceSlots?.[pickTargetSlot] ?? []).includes(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    className={`picker-row ${checked ? 'checked' : ''}`}
+                    onClick={() => void toggleCaptureInSlot(pickTargetSlot, c.id)}
+                  >
+                    <span className="picker-check">{checked ? '✓' : ''}</span>
+                    <span className="picker-name">{c.title}</span>
+                    <span className="muted small tabular">
+                      {c.capturedAt ?? c.importedAt.slice(0, 10)}
+                    </span>
+                  </button>
+                );
+              })
+            )}
           </div>
-          <div className="modal-actions"><button className="btn primary" onClick={() => setPickOpen(false)}>完成</button></div>
+          <div className="modal-actions">
+            <button className="btn primary" onClick={() => setPickTargetSlot(null)}>
+              完成
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {previewCap && (
+        <Modal title={previewCap.title} onClose={() => setPreviewCap(null)} wide>
+          <div className="lightbox-wrap">
+            <LightboxPreview capture={previewCap} />
+          </div>
         </Modal>
       )}
     </div>

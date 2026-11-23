@@ -41,33 +41,35 @@ export const SYSTEM_TEMPLATES: Template[] = [
     id: 'tpl-competition',
     name: '竞赛',
     slug: 'competition',
-    description: '记录比赛、奖项、作品与复盘',
+    description: '记录比赛、分级、奖项、佐证照片与复盘',
     icon: 'Trophy',
     isSystem: true,
     createdAt: '2026-01-01T00:00:00.000Z',
     fields: [
-      { key: 'registerTime', label: '报名时间', type: 'text', placeholder: '2026.3' },
-      { key: 'competitionTime', label: '比赛时间', type: 'text', placeholder: '2026.5' },
-      { key: 'awardTime', label: '获奖时间', type: 'text', placeholder: '2026-5-24' },
-      { key: 'eventType', label: '个人赛/团队赛', type: 'text', placeholder: '个人赛 / 团队赛' },
-      { key: 'teamLeader', label: '团队赛负责人', type: 'text', placeholder: '队长或负责人姓名' },
-      { key: 'advisor', label: '指导老师', type: 'text', placeholder: '指导教师姓名' },
-      { key: 'hubeiLevel', label: '湖大分级', type: 'text', placeholder: 'A1 / A2 / B1 / B2 / 待确认' },
-      { key: 'level', label: '级别', type: 'text', placeholder: '校级 / 省级 / 国家级 / 国际级' },
-      { key: 'awarded', label: '是否获奖', type: 'text', placeholder: '是 / 否 / 待核实' },
-      { key: 'award', label: '奖项', type: 'text', placeholder: '一等奖 / 银奖' },
-      { key: 'score', label: '成绩', type: 'text', placeholder: '360分 / 100/100' },
-      { key: 'rank', label: '排名', type: 'text', placeholder: '1/279' },
-      { key: 'location', label: '比赛地点', type: 'text', placeholder: '城市 / 场馆' },
-      { key: 'issuer', label: '颁奖单位', type: 'text', placeholder: '主办或颁奖机构' },
-      { key: 'certificate', label: '证书照片', type: 'text', placeholder: '在收件箱关联后填写资料标题' },
-      { key: 'medal', label: '奖牌照片', type: 'text', placeholder: '在收件箱关联后填写资料标题' },
-      { key: 'groupPhoto', label: '合照', type: 'text', placeholder: '在收件箱关联后填写资料标题' },
-      { key: 'relatedImages', label: '相关图片', type: 'text', placeholder: '其他佐证或现场照片' },
-      { key: 'role', label: '角色', type: 'text', placeholder: '队长 / 队员' },
-      { key: 'team', label: '队伍', type: 'text', placeholder: '队伍名称或成员' },
-      { key: 'link', label: '作品链接', type: 'text', placeholder: 'https://' },
-      { key: 'review', label: '复盘', type: 'textarea', placeholder: '这次经历学到了什么' },
+      { key: '报名时间', label: '报名时间', type: 'text', placeholder: '2026.3', group: '时间与地点' },
+      { key: '比赛时间', label: '比赛时间', type: 'text', placeholder: '2026.5', group: '时间与地点' },
+      { key: '获奖时间', label: '获奖时间', type: 'text', placeholder: '2026-05-24', group: '时间与地点' },
+      { key: '比赛地点', label: '比赛地点', type: 'text', placeholder: '城市 / 场馆 / 线上', group: '时间与地点' },
+      { key: '湖大分级', label: '湖大分级', type: 'text', placeholder: 'A1 / A2 / B1 / B2 / 待确认', group: '级别与奖项' },
+      { key: '原表级别', label: '原表级别', type: 'text', placeholder: '校级 / 省级 / 国家级 / 国际级', group: '级别与奖项' },
+      { key: '分级依据', label: '分级依据', type: 'text', placeholder: '官方认定目录或条款', group: '级别与奖项' },
+      { key: '是否获奖', label: '是否获奖', type: 'text', placeholder: '是 / 否 / 待核实', group: '级别与奖项' },
+      { key: '奖项', label: '奖项', type: 'text', placeholder: '一等奖 / 银奖 / 优胜奖', group: '级别与奖项' },
+      { key: '成绩', label: '成绩', type: 'text', placeholder: '360分 / 100/100', group: '级别与奖项' },
+      { key: '排名', label: '排名', type: 'text', placeholder: '1/279', group: '级别与奖项' },
+      { key: '颁奖单位', label: '颁奖单位', type: 'text', placeholder: '主办或颁奖机构', group: '级别与奖项' },
+      { key: '个人赛/团队赛', label: '个人赛/团队赛', type: 'text', placeholder: '个人赛 / 团队赛', group: '团队与作品' },
+      { key: '团队赛负责人', label: '团队赛负责人', type: 'text', placeholder: '队长或负责人姓名', group: '团队与作品' },
+      { key: '指导老师', label: '指导老师', type: 'text', placeholder: '指导教师姓名', group: '团队与作品' },
+      { key: '角色', label: '角色', type: 'text', placeholder: '队长 / 队员', group: '团队与作品' },
+      { key: '队伍', label: '队伍', type: 'text', placeholder: '队伍名称或成员', group: '团队与作品' },
+      { key: '作品链接', label: '作品链接', type: 'text', placeholder: 'https://', group: '团队与作品' },
+      { key: '证书照片', label: '证书照片', type: 'evidence', placeholder: '拖拽或关联证书扫描件', group: '佐证材料' },
+      { key: '奖牌照片', label: '奖牌照片', type: 'evidence', placeholder: '拖拽或关联奖牌照片', group: '佐证材料' },
+      { key: '合照', label: '合照', type: 'evidence', placeholder: '拖拽或关联参赛合照', group: '佐证材料' },
+      { key: '相关图片', label: '相关图片', type: 'evidence', placeholder: '拖拽或关联其他现场/截图佐证', group: '佐证材料' },
+      { key: '备注', label: '备注', type: 'textarea', placeholder: '补充核验线索、微信记录或待办事项', group: '复盘与备注' },
+      { key: '复盘', label: '复盘', type: 'textarea', placeholder: '这次经历学到了什么、下次如何改进', group: '复盘与备注' },
     ],
   },
   {
@@ -102,7 +104,7 @@ export const SYSTEM_TEMPLATES: Template[] = [
       { key: 'transport', label: '交通', type: 'text', placeholder: '高铁 / 飞机 / 自驾' },
       { key: 'stay', label: '住宿', type: 'text', placeholder: '住在哪里' },
       { key: 'cost', label: '花费', type: 'text', placeholder: '大致花费' },
-      { key: 'photos', label: '照片', type: 'text', placeholder: '在收件箱关联后填写资料标题' },
+      { key: 'photos', label: '照片', type: 'evidence', placeholder: '关联旅途照片' },
       { key: 'body', label: '游记正文', type: 'textarea', placeholder: '今天看到了什么，发生了什么' },
     ],
   },
@@ -147,9 +149,13 @@ export const SYSTEM_TEMPLATES: Template[] = [
 ];
 
 export async function initDatabase() {
-  const count = await db.templates.count();
-  if (count === 0) {
+  const existing = await db.templates.toArray();
+  if (existing.length === 0) {
     await db.templates.bulkPut(SYSTEM_TEMPLATES);
+  } else {
+    // 升级系统竞赛模板，保证新增字段与佐证槽位生效
+    const compTpl = SYSTEM_TEMPLATES.find((t) => t.id === 'tpl-competition');
+    if (compTpl) await db.templates.put(compTpl);
   }
   if (!(await db.settings.get('cloudAi'))) {
     await db.settings.put({ key: 'cloudAi', value: 'off' });

@@ -1,5 +1,5 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
-import type { Capture, Fact, Template } from '../types';
+import type { Capture, Collection, Experience, Fact, Relation, Setting, Template } from '../types';
 import { db, SYSTEM_TEMPLATES, type HistoryRecord } from '../db';
 
 export const uid = () => crypto.randomUUID();
@@ -103,6 +103,17 @@ export async function captureFromFile(file: File, source: string): Promise<Captu
   return base;
 }
 
+/** 将文件入库并按 SHA-256 去重，返回最终落库的 Capture（可能是已存在的重复项） */
+export async function saveFileCaptureDedup(file: File, source: string): Promise<{ capture: Capture; deduplicated: boolean }> {
+  const draft = await captureFromFile(file, source);
+  if (draft.sha256) {
+    const existing = await db.captures.where('sha256').equals(draft.sha256).first();
+    if (existing) return { capture: existing, deduplicated: true };
+  }
+  await db.captures.put(draft);
+  return { capture: draft, deduplicated: false };
+}
+
 export function captureFromText(text: string): Capture {
   const base: Capture = {
     id: uid(),
@@ -173,12 +184,19 @@ interface BackupMeta {
   version: number;
   exportedAt: string;
   captures: Omit<Capture, 'blob'>[];
-  experiences: unknown[];
+  experiences: Experience[];
   templates: Template[];
-  collections: unknown[];
-  relations: unknown[];
-  settings: unknown[];
+  collections: Collection[];
+  relations: Relation[];
+  settings: Setting[];
   files: Record<string, string>;
+}
+
+export interface ImportSummary {
+  capturesAdded: number;
+  experiencesAdded: number;
+  experiencesMerged: number;
+  collectionsMerged: number;
 }
 
 export async function exportBackup() {
@@ -211,27 +229,120 @@ export async function exportBackup() {
   downloadBlob(`RecallSoro-backup-${stamp}.zip`, new Blob([zipped as BlobPart], { type: 'application/zip' }));
 }
 
-export async function importBackup(file: File) {
+export async function importBackup(file: File, mode: 'merge' | 'replace' = 'merge'): Promise<ImportSummary> {
   const data = unzipSync(new Uint8Array(await file.arrayBuffer()));
+  if (!data['backup.json']) throw new Error('压缩包中缺少 backup.json');
   const meta = JSON.parse(strFromU8(data['backup.json'])) as BackupMeta;
   if (meta.app !== 'RecallSoro' || meta.version !== 1) throw new Error('不是有效的 RecallSoro 备份');
-  await db.transaction('rw', [db.captures, db.experiences, db.templates, db.collections, db.relations, db.settings], async () => {
-    await Promise.all([
-      db.captures.clear(),
-      db.experiences.clear(),
-      db.collections.clear(),
-      db.relations.clear(),
-      db.settings.clear(),
-    ]);
+
+  const summary: ImportSummary = {
+    capturesAdded: 0,
+    experiencesAdded: 0,
+    experiencesMerged: 0,
+    collectionsMerged: 0,
+  };
+
+  if (mode === 'replace') {
+    await db.transaction('rw', [db.captures, db.experiences, db.templates, db.collections, db.relations, db.settings], async () => {
+      await Promise.all([
+        db.captures.clear(),
+        db.experiences.clear(),
+        db.collections.clear(),
+        db.relations.clear(),
+        db.settings.clear(),
+      ]);
+      for (const c of meta.captures) {
+        const path = meta.files?.[c.id];
+        const blob = path && data[path] ? new Blob([data[path] as BlobPart], { type: c.mimeType }) : undefined;
+        await db.captures.put({ ...c, blob });
+        summary.capturesAdded += 1;
+      }
+      await db.experiences.bulkPut(meta.experiences);
+      summary.experiencesAdded = meta.experiences.length;
+      const mergedTemplates = SYSTEM_TEMPLATES.slice();
+      for (const t of meta.templates) {
+        if (!mergedTemplates.some((x) => x.id === t.id)) mergedTemplates.push(t);
+      }
+      await db.templates.bulkPut(mergedTemplates);
+      await db.collections.bulkPut(meta.collections);
+      summary.collectionsMerged = meta.collections.length;
+      await db.relations.bulkPut(meta.relations);
+      await db.settings.bulkPut(meta.settings);
+    });
+    return summary;
+  }
+
+  // 增量合并模式：保留本地已有图片、佐证槽位和手动修改
+  await db.transaction('rw', [db.captures, db.experiences, db.templates, db.collections, db.relations], async () => {
+    const existingCaptures = await db.captures.toArray();
+    const shaMap = new Map(existingCaptures.filter((c) => c.sha256).map((c) => [c.sha256, c.id]));
+    const existingCapIds = new Set(existingCaptures.map((c) => c.id));
+    const capIdRemap = new Map<string, string>();
+
     for (const c of meta.captures) {
+      if (c.sha256 && shaMap.has(c.sha256)) {
+        capIdRemap.set(c.id, shaMap.get(c.sha256)!);
+        continue;
+      }
+      if (existingCapIds.has(c.id)) {
+        capIdRemap.set(c.id, c.id);
+        continue;
+      }
       const path = meta.files?.[c.id];
       const blob = path && data[path] ? new Blob([data[path] as BlobPart], { type: c.mimeType }) : undefined;
       await db.captures.put({ ...c, blob });
+      capIdRemap.set(c.id, c.id);
+      if (c.sha256) shaMap.set(c.sha256, c.id);
+      summary.capturesAdded += 1;
     }
-    await db.experiences.bulkPut(meta.experiences as never[]);
-    await db.templates.bulkPut(meta.templates.length ? meta.templates : SYSTEM_TEMPLATES);
-    await db.collections.bulkPut(meta.collections as never[]);
-    await db.relations.bulkPut(meta.relations as never[]);
-    await db.settings.bulkPut(meta.settings as never[]);
+
+    for (const t of meta.templates) {
+      if (!t.isSystem && !(await db.templates.get(t.id))) {
+        await db.templates.put(t);
+      }
+    }
+
+    for (const incoming of meta.experiences) {
+      const remappedCaps = incoming.captureIds.map((cid) => capIdRemap.get(cid) ?? cid);
+      const existing = await db.experiences.get(incoming.id);
+      if (!existing) {
+        await db.experiences.put({ ...incoming, captureIds: Array.from(new Set(remappedCaps)) });
+        summary.experiencesAdded += 1;
+      } else {
+        const mergedCustom = { ...(incoming.customFields ?? {}), ...(existing.customFields ?? {}) };
+        const mergedTags = Array.from(new Set([...(existing.tags ?? []), ...(incoming.tags ?? [])]));
+        const mergedCaps = Array.from(new Set([...(existing.captureIds ?? []), ...remappedCaps]));
+        await db.experiences.put({
+          ...existing,
+          customFields: mergedCustom,
+          tags: mergedTags,
+          captureIds: mergedCaps,
+          updatedAt: now(),
+        });
+        summary.experiencesMerged += 1;
+      }
+    }
+
+    for (const incoming of meta.collections) {
+      const remappedCaps = incoming.captureIds.map((cid) => capIdRemap.get(cid) ?? cid);
+      const existing = await db.collections.get(incoming.id);
+      if (!existing) {
+        await db.collections.put({ ...incoming, captureIds: Array.from(new Set(remappedCaps)) });
+      } else {
+        await db.collections.put({
+          ...existing,
+          experienceIds: Array.from(new Set([...existing.experienceIds, ...incoming.experienceIds])),
+          captureIds: Array.from(new Set([...existing.captureIds, ...remappedCaps])),
+          updatedAt: now(),
+        });
+      }
+      summary.collectionsMerged += 1;
+    }
+
+    for (const r of meta.relations) {
+      if (!(await db.relations.get(r.id))) await db.relations.put(r);
+    }
   });
+
+  return summary;
 }

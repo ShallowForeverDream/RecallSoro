@@ -42,7 +42,12 @@ export interface Experience {
   status: 'draft' | 'active' | 'archived';
   tags: string[];
   captureIds: string[];
+  /** 可选绑定的模板 ID，例如 tpl-competition */
+  templateId?: string;
+  /** 结构化台账字段（兼容中英文 key） */
   customFields: Record<string, string>;
+  /** 佐证槽位映射，例如 { '证书照片': ['capture-id-1'] } */
+  evidenceSlots?: Record<string, string[]>;
   createdAt: string;
   updatedAt: string;
 }
@@ -50,8 +55,9 @@ export interface Experience {
 export interface FieldDef {
   key: string;
   label: string;
-  type: 'text' | 'date' | 'textarea' | 'tags' | 'number';
+  type: 'text' | 'date' | 'textarea' | 'tags' | 'number' | 'evidence';
   placeholder?: string;
+  group?: string;
 }
 
 export interface Template {

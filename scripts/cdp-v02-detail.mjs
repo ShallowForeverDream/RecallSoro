@@ -1,0 +1,23 @@
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const targets = await fetch('http://127.0.0.1:9222/json').then((r) => r.json());
+const page = targets.find((t) => t.type === 'page' && t.url.includes('127.0.0.1:4173'));
+const ws = new WebSocket(page.webSocketDebuggerUrl);
+await new Promise((res) => { ws.onopen = res; });
+let seq = 0;
+const pending = new Map();
+ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } };
+const send = (method, params = {}) => new Promise((resolve) => { const id = ++seq; pending.set(id, resolve); ws.send(JSON.stringify({ id, method, params })); });
+const evaluate = async (expression) => { const r = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }); return r.result?.result?.value; };
+await send('Runtime.enable');
+await evaluate("location.href='http://127.0.0.1:4173/collections'");
+await sleep(700);
+// click collection card containing 全部竞赛经历
+await evaluate("(() => { const b=[...document.querySelectorAll('.list-card,button')].find(x=>x.textContent.includes('全部竞赛经历')); if(b){b.click();return true} return false })()");
+await sleep(1000);
+console.log('url:', await evaluate('location.pathname'));
+const text = await evaluate('document.body.innerText');
+console.log('has 缺项体检:', text.includes('缺项体检'));
+console.log('has 快速补图:', text.includes('快速补图'));
+console.log('has table headers:', text.includes('报名时间') && text.includes('比赛时间') && text.includes('获奖时间'));
+console.log('excerpt:', text.slice(0, 1600));
+ws.close();
