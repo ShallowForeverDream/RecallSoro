@@ -227,13 +227,13 @@ export async function exportProofPortfolioPdf(
     w.draw('共 ' + rows.length + ' 条记录', PAGE_W - MARGIN - 90, PAGE_H - 58, 10, muted);
 
     const cols = [
-      { key: 'idx', label: '#', width: 24 },
-      { key: 'date', label: '时间', width: 62 },
-      { key: 'title', label: '名称', width: 232 },
-      { key: 'grade', label: '分级', width: 40 },
-      { key: 'award', label: '奖项', width: 44 },
-      { key: 'scoreRank', label: '成绩/排名', width: 52 },
-      { key: 'issuer', label: '颁奖单位', width: 45 },
+      { key: 'idx', label: '#', width: 22 },
+      { key: 'date', label: '时间', width: 58 },
+      { key: 'title', label: '名称', width: 216 },
+      { key: 'grade', label: '分级', width: 52 },
+      { key: 'award', label: '奖项', width: 42 },
+      { key: 'scoreRank', label: '成绩/排名', width: 48 },
+      { key: 'issuer', label: '颁奖单位', width: 61 },
     ];
     let y = PAGE_H - 88;
     let x = MARGIN;

@@ -10,7 +10,7 @@ import {
   stopLanDrop,
   type LanDropStatus,
 } from '../lib/tauriBridge';
-import { setCompField } from '../lib/competition';
+import { getCompField, mergeEvidenceText, setCompField } from '../lib/competition';
 import { Chip, Modal, useToast } from './common';
 import { QrCode } from './QrCode';
 
@@ -126,7 +126,11 @@ export function LanDropModal({
       ...exp,
       captureIds: nextCapIds,
       evidenceSlots: { ...prevSlots, [slotKey]: nextSlotIds },
-      customFields: setCompField(exp, slotKey, entry.capture.title),
+      customFields: setCompField(
+        exp,
+        slotKey,
+        mergeEvidenceText(getCompField(exp, slotKey), [entry.capture.title]),
+      ),
       updatedAt: now(),
     });
     setLogs((prev) =>

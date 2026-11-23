@@ -136,7 +136,7 @@ export function Empty({
   );
 }
 
-export type ChipTone = 'neutral' | 'accent' | 'good' | 'warn' | 'gold' | 'indigo' | 'emerald' | 'danger';
+export type ChipTone = 'neutral' | 'accent' | 'good' | 'warn' | 'gold' | 'indigo' | 'emerald' | 'danger' | 'muted';
 
 export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone?: ChipTone }) {
   return <span className={`chip chip-${tone}`}>{children}</span>;

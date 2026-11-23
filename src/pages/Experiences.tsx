@@ -27,6 +27,7 @@ import {
   gradeTone,
   isAwarded,
   isCompetitionExperience,
+  mergeEvidenceText,
   setCompField,
 } from '../lib/competition';
 import { Chip, Empty, Field, Modal, PageHead, useToast } from '../components/common';
@@ -372,13 +373,7 @@ export function ExperienceDetail() {
     const prevSlots = exp.evidenceSlots ?? {};
     const nextSlotIds = Array.from(new Set([...(prevSlots[slotKey] ?? []), ...addedIds]));
     const nextCapIds = Array.from(new Set([...exp.captureIds, ...addedIds]));
-    const existingText = getCompField(exp, slotKey);
-    const mergedText = Array.from(
-      new Set([
-        ...(existingText ? existingText.split(/[,，;；]\s*/).filter(Boolean) : []),
-        ...addedTitles,
-      ]),
-    ).join('，');
+    const mergedText = mergeEvidenceText(getCompField(exp, slotKey), addedTitles);
 
     const next: Experience = {
       ...exp,

@@ -18,6 +18,7 @@ import {
   gradeTone,
   isAwarded,
   isCompetitionExperience,
+  mergeEvidenceText,
   setCompField,
 } from '../lib/competition';
 import {
@@ -101,7 +102,11 @@ export default function Dashboard() {
     const prevSlots = exp.evidenceSlots ?? {};
     const nextSlotIds = Array.from(new Set([...(prevSlots[s.suggestedSlot] ?? []), s.capture.id]));
     const nextCapIds = Array.from(new Set([...exp.captureIds, s.capture.id]));
-    let nextCf = setCompField(exp, s.suggestedSlot, s.capture.title);
+    let nextCf = setCompField(
+      exp,
+      s.suggestedSlot,
+      mergeEvidenceText(getCompField(exp, s.suggestedSlot), [s.capture.title]),
+    );
     if (s.suggestedAward) nextCf = setCompField({ ...exp, customFields: nextCf }, '奖项', s.suggestedAward);
 
     await db.experiences.put({

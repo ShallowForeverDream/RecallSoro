@@ -47,7 +47,13 @@ export default function Search() {
     for (const e of data.experiences) {
       const cfValues = Object.values(e.customFields ?? {});
       const hay = [e.title, e.description, e.location, e.startAt ?? '', ...e.tags, ...cfValues].join(' ');
-      if (hay.toLowerCase().includes(q)) {
+      // 同 Capture：台账里的赛事名可能与 OCR 文本一样带空格，去空格后再比一次
+      const flat = hay.replace(/\s+/g, '');
+      const flatQuery = q.replace(/\s+/g, '');
+      if (
+        hay.toLowerCase().includes(q) ||
+        (flatQuery.length >= 2 && flat.toLowerCase().includes(flatQuery))
+      ) {
         const isComp = isCompetitionExperience(e);
         const grade = isComp ? getCompField(e, '湖大分级') : '';
         const award = isComp ? getCompField(e, '奖项') : '';
@@ -70,10 +76,15 @@ export default function Search() {
         c.note,
         c.text ?? '',
         c.url ?? '',
+        c.ocrText ?? '',
         ...c.tags,
         ...c.facts.map((f) => f.value),
       ].join(' ');
-      if (hay.toLowerCase().includes(q)) {
+      // OCR 文本里中文被逐字空格分隔（「蓝 桥 杯」），子串匹配搜不到「蓝桥杯」。
+      // 这里额外用去空格后的版本再比一次。
+      const flat = hay.replace(/\s+/g, '');
+      const flatQuery = q.replace(/\s+/g, '');
+      if (hay.toLowerCase().includes(q) || (flatQuery.length >= 2 && flat.toLowerCase().includes(flatQuery))) {
         out.push({
           id: c.id,
           type: 'capture',

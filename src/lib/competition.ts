@@ -1,6 +1,7 @@
 import { zipSync, strToU8 } from 'fflate';
 import type { Capture, Experience } from '../types';
 import { downloadBlob } from './utils';
+import { SYSTEM_TEMPLATES } from '../db';
 import { resolveCaptureBlob } from './tauriBridge';
 
 /** 兼容中英文自定义字段键名映射 */
@@ -47,9 +48,27 @@ export const EVIDENCE_SLOTS = [
  */
 const PLACEHOLDER_RE = /待补|待上传|未上传|待关联|待填写|待确认|暂无|尚未|无|缺/;
 
+/** 佐证字段里用于提示用户去补图的占位文案（导出供 UI 过滤用） */
+export const PLACEHOLDER_HINT_RE = /待补|待上传|未上传|待关联|待填写|待确认|暂无|尚未/;
+
 export function hasRealEvidenceText(text: string | undefined): boolean {
   const v = (text ?? '').trim();
   return Boolean(v && !PLACEHOLDER_RE.test(v));
+}
+
+/**
+ * 往佐证槽位追加原件时合并字段文本。
+ *
+ * 必须先剔除占位提示文案（如「待补：请在收件箱上传证书并关联」），
+ * 否则上传后字段会残留成「待补：…，证书照片.jpg」——既脏，
+ * 又在占位文案改写后会被体检误判为「证书齐全」。
+ */
+export function mergeEvidenceText(existingText: string | undefined, addedTitles: string[]): string {
+  const parts = (existingText ?? '')
+    .split(/[,，;；]\s*/)
+    .map((t) => t.trim())
+    .filter((t) => t && !PLACEHOLDER_HINT_RE.test(t));
+  return Array.from(new Set([...parts, ...addedTitles])).join('，');
 }
 
 export function getCompField(exp: Experience, canonicalKey: string): string {
@@ -93,15 +112,29 @@ export function getExperienceGroup(exp: Experience): string {
   return exp.tags[0] || '未分组';
 }
 
-export function getGradeBucket(gradeRaw: string): 'A1' | 'A2' | 'B1' | 'B2' | 'C' | '待确认' {
+/**
+ * 分级档位。
+ * 「未列入目录」是一个**已确定的结论**（该赛事确实不在湖北大学官方目录中），
+ * 不是「还没查出来」，所以必须与「待确认」区分开——否则 50 条已核实记录
+ * 会被误报成「分级待确认」，掩盖真正需要补查的部分。
+ */
+export type GradeBucket = 'A1' | 'A2' | 'B1' | 'B2' | 'C' | '未列入目录' | '待确认';
+
+export function getGradeBucket(gradeRaw: string): GradeBucket {
   const g = gradeRaw.trim().toUpperCase();
   if (!g || g.includes('待确认') || g.includes('未知') || g.includes('未匹配')) return '待确认';
+  if (g.includes('未列入目录') || g.includes('不在目录') || g.includes('目录外')) return '未列入目录';
   if (g.startsWith('A1')) return 'A1';
   if (g.startsWith('A2')) return 'A2';
   if (g.startsWith('B1')) return 'B1';
   if (g.startsWith('B2')) return 'B2';
   if (g.startsWith('C')) return 'C';
   return '待确认';
+}
+
+/** 是否已得到明确分级结论（A/B/C 或「未列入目录」都算已核实） */
+export function isGradeResolved(bucket: GradeBucket): boolean {
+  return bucket !== '待确认';
 }
 
 export function isAwarded(exp: Experience): boolean {
@@ -165,12 +198,13 @@ export function auditCompetition(exp: Experience): CompetitionAudit {
   };
 }
 
-export function gradeTone(gradeRaw: string): 'gold' | 'indigo' | 'emerald' | 'warn' | 'neutral' {
+export function gradeTone(gradeRaw: string): 'gold' | 'indigo' | 'emerald' | 'warn' | 'neutral' | 'muted' {
   const bucket = getGradeBucket(gradeRaw);
   if (bucket === 'A1') return 'gold';
   if (bucket === 'A2') return 'indigo';
   if (bucket === 'B1' || bucket === 'B2') return 'emerald';
   if (bucket === '待确认') return 'warn';
+  if (bucket === '未列入目录') return 'muted';
   return 'neutral';
 }
 
@@ -180,56 +214,45 @@ function escapeCsvCell(v: string): string {
   return s;
 }
 
+/**
+ * 竞赛台账导出到 CSV。
+ *
+ * 列不是写死的，而是从竞赛模板的字段定义动态生成——
+ * 这样模板里新增字段（如团队赛负责人、角色、队伍）后导出自动跟上，
+ * 不会再出现「模板里有、导出里漏」的情况。
+ */
 export function exportCompetitionCSV(experiences: Experience[], filenamePrefix = '竞赛台账') {
-  const headers = [
-    '时间',
-    '竞赛名称',
-    '分组',
-    '湖大分级',
-    '原表级别',
-    '是否获奖',
-    '奖项',
-    '成绩',
-    '排名',
-    '个人赛/团队赛',
-    '指导老师',
-    '比赛地点',
-    '颁奖单位',
-    '报名时间',
-    '比赛时间',
-    '获奖时间',
-    '分级依据',
-    '关联佐证数',
-    '备注',
-  ];
+  const compTemplate = SYSTEM_TEMPLATES.find((t) => t.id === 'tpl-competition');
+  const templateFields = (compTemplate?.fields ?? [])
+    .filter((f) => f.type !== 'evidence')
+    .map((f) => f.key);
 
-  const rows = experiences.map((e) => [
-    e.startAt ?? '待确认',
-    e.title,
-    getExperienceGroup(e),
-    getCompField(e, '湖大分级'),
-    getCompField(e, '原表级别'),
-    getCompField(e, '是否获奖'),
-    getCompField(e, '奖项'),
-    getCompField(e, '成绩'),
-    getCompField(e, '排名'),
-    getCompField(e, '个人赛/团队赛'),
-    getCompField(e, '指导老师'),
-    getCompField(e, '比赛地点') || e.location,
-    getCompField(e, '颁奖单位'),
-    getCompField(e, '报名时间'),
-    getCompField(e, '比赛时间'),
-    getCompField(e, '获奖时间'),
-    getCompField(e, '分级依据'),
-    String(e.captureIds.length),
-    getCompField(e, '备注') || e.description,
-  ]);
+  const extraHeaders = ['时间', '竞赛名称', '分组', '关联佐证数'];
+  const headers = [...extraHeaders, ...templateFields];
+
+  const rows = experiences.map((e) => {
+    const base = [
+      e.startAt ?? '待确认',
+      e.title,
+      getExperienceGroup(e),
+      String(e.captureIds.length),
+    ];
+    const fields = templateFields.map((key) => {
+      if (key === '备注') return getCompField(e, '备注') || e.description;
+      return getCompField(e, key);
+    });
+    return [...base, ...fields];
+  });
 
   const csv = '\uFEFF' + [headers, ...rows].map((r) => r.map(escapeCsvCell).join(',')).join('\r\n');
   const stamp = new Date().toISOString().slice(0, 10);
   downloadBlob(`${filenamePrefix}-${stamp}.csv`, new Blob([csv], { type: 'text/csv;charset=utf-8' }));
 }
 
+/**
+ * 导出 Markdown 台账（适合直接贴进简历、个人主页或文档）。
+ * 附带「待补事项」列，导出后一眼能看出哪些记录还需要补佐证。
+ */
 export function exportCompetitionMarkdown(experiences: Experience[], title = '个人竞赛经历台账') {
   const sorted = experiences.slice().sort((a, b) => (b.startAt ?? '').localeCompare(a.startAt ?? ''));
   const lines: string[] = [
@@ -237,11 +260,19 @@ export function exportCompetitionMarkdown(experiences: Experience[], title = '�
     '',
     `> 导出时间：${new Date().toISOString().slice(0, 10)} · 共 ${sorted.length} 条记录`,
     '',
-    '| 时间 | 竞赛名称 | 湖大分级 | 奖项 | 成绩/排名 | 颁奖单位 |',
-    '| --- | --- | --- | --- | --- | --- |',
+    '| 时间 | 竞赛名称 | 湖大分级 | 奖项 | 成绩/排名 | 颁奖单位 | 指导老师 | 待补事项 |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- |',
   ];
   for (const e of sorted) {
     const scoreRank = [getCompField(e, '成绩'), getCompField(e, '排名')].filter(Boolean).join(' / ') || '—';
+    const audit = auditCompetition(e);
+    const pending = [
+      audit.missingCertificate ? '缺证书' : '',
+      audit.missingDate ? '缺日期' : '',
+      audit.missingGrade ? '缺分级' : '',
+    ]
+      .filter(Boolean)
+      .join('、') || '—';
     const row = [
       e.startAt ?? '待确认',
       e.title.replace(/\|/g, '\\|'),
@@ -249,6 +280,8 @@ export function exportCompetitionMarkdown(experiences: Experience[], title = '�
       getCompField(e, '奖项') || (isAwarded(e) ? '已获奖' : '—'),
       scoreRank.replace(/\|/g, '\\|'),
       (getCompField(e, '颁奖单位') || '—').replace(/\|/g, '\\|'),
+      (getCompField(e, '指导老师') || '—').replace(/\|/g, '\\|'),
+      pending,
     ];
     lines.push(`| ${row.join(' | ')} |`);
   }

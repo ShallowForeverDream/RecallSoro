@@ -51,6 +51,7 @@ import {
   getCompField,
   getExperienceGroup,
   getGradeBucket,
+  mergeEvidenceText,
   gradeTone,
   isAwarded,
   setCompField,
@@ -341,7 +342,9 @@ type ViewTab = 'table' | 'timeline' | 'settings';
 type QuickAuditFilter = 'all' | 'missingCert' | 'missingDate' | 'missingGrade' | 'awarded' | 'hasEvidence';
 type SortMode = 'dateDesc' | 'dateAsc' | 'grade' | 'issues';
 
-const GRADE_ORDER: Record<string, number> = { A1: 1, A2: 2, B1: 3, B2: 4, C: 5, 待确认: 9 };
+const GRADE_ORDER: Record<string, number> = {
+  A1: 1, A2: 2, B1: 3, B2: 4, C: 5, 未列入目录: 8, 待确认: 9,
+};
 
 export function CollectionDetail() {
   const { id } = useParams();
@@ -413,6 +416,7 @@ export function CollectionDetail() {
     let a1 = 0;
     let a2 = 0;
     let bClass = 0;
+    let notInCatalog = 0;
     let unknownGrade = 0;
     let missingCert = 0;
     let missingDate = 0;
@@ -425,6 +429,7 @@ export function CollectionDetail() {
       if (gb === 'A1') a1 += 1;
       else if (gb === 'A2') a2 += 1;
       else if (gb === 'B1' || gb === 'B2') bClass += 1;
+      else if (gb === '未列入目录') notInCatalog += 1;
       else unknownGrade += 1;
 
       if (a.missingCertificate) missingCert += 1;
@@ -437,6 +442,7 @@ export function CollectionDetail() {
       a1,
       a2,
       bClass,
+      notInCatalog,
       unknownGrade,
       aClass: a1 + a2,
       missingCert,
@@ -648,13 +654,7 @@ export function CollectionDetail() {
     const prevSlots = drawerExp.evidenceSlots ?? {};
     const nextSlotIds = Array.from(new Set([...(prevSlots[drawerSlot] ?? []), ...addedIds]));
     const nextCapIds = Array.from(new Set([...drawerExp.captureIds, ...addedIds]));
-    const prevSlotText = getCompField(drawerExp, drawerSlot);
-    const mergedText = Array.from(
-      new Set([
-        ...(prevSlotText ? prevSlotText.split(/[,，;；]\s*/).filter(Boolean) : []),
-        ...addedTitles,
-      ]),
-    ).join('，');
+    const mergedText = mergeEvidenceText(getCompField(drawerExp, drawerSlot), addedTitles);
 
     const updatedExp: Experience = {
       ...drawerExp,
@@ -847,10 +847,22 @@ export function CollectionDetail() {
             <StatCard
               label="时间待确认"
               value={kpi.missingDate}
-              sub={`分级待确认 ${kpi.missingGrade} 项`}
+              sub="记录缺开始时间"
               tone="accent"
               active={auditFilter === 'missingDate'}
               onClick={() => setAuditFilter(auditFilter === 'missingDate' ? 'all' : 'missingDate')}
+            />
+            <StatCard
+              label="分级待确认"
+              value={kpi.unknownGrade}
+              sub={
+                kpi.notInCatalog > 0
+                  ? `另有 ${kpi.notInCatalog} 条不在官方目录`
+                  : '需查官方目录确认分级'
+              }
+              tone={kpi.unknownGrade > 0 ? 'warn' : 'emerald'}
+              active={auditFilter === 'missingGrade'}
+              onClick={() => setAuditFilter(auditFilter === 'missingGrade' ? 'all' : 'missingGrade')}
             />
           </div>
 
@@ -859,8 +871,9 @@ export function CollectionDetail() {
               <div className="grade-bar-head">
                 <span className="small">湖大分级结构分布</span>
                 <span className="muted small tabular">
-                  已定级 {kpi.total - kpi.unknownGrade}/{kpi.total}（
+                  已核实 {kpi.total - kpi.unknownGrade}/{kpi.total}（
                   {Math.round(((kpi.total - kpi.unknownGrade) / kpi.total) * 100)}%）
+                  {kpi.notInCatalog > 0 && `，其中 ${kpi.notInCatalog} 条不在官方目录`}
                 </span>
               </div>
               <div className="grade-bar-track">
@@ -868,6 +881,9 @@ export function CollectionDetail() {
                 {kpi.a2 > 0 && <div className="seg seg-a2" style={{ width: pct(kpi.a2) }} title={`A2: ${kpi.a2}`} />}
                 {kpi.bClass > 0 && (
                   <div className="seg seg-b" style={{ width: pct(kpi.bClass) }} title={`B1/B2: ${kpi.bClass}`} />
+                )}
+                {kpi.notInCatalog > 0 && (
+                  <div className="seg seg-nc" style={{ width: pct(kpi.notInCatalog) }} title={`未列入目录: ${kpi.notInCatalog}`} />
                 )}
                 {kpi.unknownGrade > 0 && (
                   <div className="seg seg-u" style={{ width: pct(kpi.unknownGrade) }} title={`待确认: ${kpi.unknownGrade}`} />
@@ -883,6 +899,14 @@ export function CollectionDetail() {
                 <button type="button" onClick={() => setGradeFilter(gradeFilter === 'B1' ? 'all' : 'B1')}>
                   <i className="dot seg-b" /> B1/B2 ({kpi.bClass})
                 </button>
+                {kpi.notInCatalog > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setGradeFilter(gradeFilter === '未列入目录' ? 'all' : '未列入目录')}
+                  >
+                    <i className="dot seg-nc" /> 未列入目录 ({kpi.notInCatalog})
+                  </button>
+                )}
                 <button type="button" onClick={() => setGradeFilter(gradeFilter === '待确认' ? 'all' : '待确认')}>
                   <i className="dot seg-u" /> 待确认 ({kpi.unknownGrade})
                 </button>
@@ -954,7 +978,7 @@ export function CollectionDetail() {
                     onChange={(e) => setGradeFilter(e.target.value)}
                   >
                     <option value="all">全部湖大分级</option>
-                    {(['A1', 'A2', 'B1', 'B2', 'C', '待确认'] as const).map((g) => (
+                    {(['A1', 'A2', 'B1', 'B2', 'C', '未列入目录', '待确认'] as const).map((g) => (
                       <option key={g} value={g}>
                         {g}
                       </option>
@@ -1419,7 +1443,7 @@ export function CollectionDetail() {
 
               <Field label="湖大分级（点击快选）">
                 <div className="filters">
-                  {(['A1', 'A2', 'B1', 'B2', 'C', '待确认'] as const).map((g) => (
+                  {(['A1', 'A2', 'B1', 'B2', 'C', '未列入目录', '待确认'] as const).map((g) => (
                     <button
                       key={g}
                       type="button"
