@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   BookOpen,
   Briefcase,
+  ExternalLink,
   FileSpreadsheet,
   FileText,
   FolderArchive,
@@ -14,6 +15,7 @@ import {
   Link2,
   Map as MapIcon,
   Plus,
+  Save,
   Search,
   Settings,
   Sparkles,
@@ -21,6 +23,7 @@ import {
   Trophy,
   Upload,
   UploadCloud,
+  X,
 } from 'lucide-react';
 import { db } from '../db';
 import type { Capture, Collection, Experience, Template } from '../types';
@@ -32,6 +35,7 @@ import {
   saveFileCaptureDedup,
   uid,
 } from '../lib/utils';
+import { resolveCaptureBlob } from '../lib/tauriBridge';
 import {
   auditCompetition,
   EVIDENCE_SLOTS,
@@ -43,6 +47,7 @@ import {
   getGradeBucket,
   gradeTone,
   isAwarded,
+  setCompField,
 } from '../lib/competition';
 import { Chip, Empty, Field, Modal, PageHead, StatCard, useToast } from '../components/common';
 
@@ -55,16 +60,24 @@ const iconMap: Record<string, typeof Trophy> = {
   BookOpen,
 };
 
-function CaptureThumb({ capture }: { capture: Capture }) {
+function CaptureThumb({ capture, className = 'story-image' }: { capture: Capture; className?: string }) {
   const [url, setUrl] = useState('');
   useEffect(() => {
-    if (capture.kind !== 'image' || !capture.blob) return;
-    const u = URL.createObjectURL(capture.blob);
-    setUrl(u);
-    return () => URL.revokeObjectURL(u);
-  }, [capture.kind, capture.blob]);
+    if (capture.kind !== 'image') return;
+    let active = true;
+    let objUrl = '';
+    void resolveCaptureBlob(capture).then((blob) => {
+      if (!active || !blob) return;
+      objUrl = URL.createObjectURL(blob);
+      setUrl(objUrl);
+    });
+    return () => {
+      active = false;
+      if (objUrl) URL.revokeObjectURL(objUrl);
+    };
+  }, [capture]);
 
-  if (url) return <img className="story-image" src={url} alt={capture.title} />;
+  if (url) return <img className={className} src={url} alt={capture.title} />;
   return null;
 }
 
@@ -332,10 +345,10 @@ export function CollectionDetail() {
   const [yearFilter, setYearFilter] = useState('all');
   const [sortMode, setSortMode] = useState<SortMode>('dateDesc');
 
-  // 快速补图弹窗状态
-  const [quickEvidenceExp, setQuickEvidenceExp] = useState<Experience | null>(null);
-  const [quickSlot, setQuickSlot] = useState<string>('证书照片');
-  const quickFileRef = useRef<HTMLInputElement>(null);
+  // 右侧滑出快编抽屉状态
+  const [drawerExp, setDrawerExp] = useState<Experience | null>(null);
+  const [drawerSlot, setDrawerSlot] = useState<string>('证书照片');
+  const drawerFileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
 
   const reloadAll = async () => {
@@ -362,6 +375,7 @@ export function CollectionDetail() {
   }, [id]);
 
   const isCompetition = col?.templateId === 'tpl-competition';
+  const captureMap = useMemo(() => new Map(captures.map((c) => [c.id, c])), [captures]);
 
   const memberExperiences = useMemo(() => {
     if (!col) return [];
@@ -369,30 +383,46 @@ export function CollectionDetail() {
     return experiences.filter((e) => idSet.has(e.id));
   }, [col, experiences]);
 
-  // 统计 KPI
+  // 统计 KPI 与分级占比
   const kpi = useMemo(() => {
     const total = memberExperiences.length;
     let awarded = 0;
-    let aClass = 0;
+    let a1 = 0;
+    let a2 = 0;
+    let bClass = 0;
+    let unknownGrade = 0;
     let missingCert = 0;
     let missingDate = 0;
-    let missingGrade = 0;
     let hasEvidence = 0;
 
     for (const e of memberExperiences) {
       const a = auditCompetition(e);
       if (isAwarded(e)) awarded += 1;
       const gb = getGradeBucket(getCompField(e, '湖大分级'));
-      if (gb === 'A1' || gb === 'A2') aClass += 1;
+      if (gb === 'A1') a1 += 1;
+      else if (gb === 'A2') a2 += 1;
+      else if (gb === 'B1' || gb === 'B2') bClass += 1;
+      else unknownGrade += 1;
+
       if (a.missingCertificate) missingCert += 1;
       if (a.missingDate) missingDate += 1;
-      if (a.missingGrade) missingGrade += 1;
       if (!a.missingAnyEvidence) hasEvidence += 1;
     }
-    return { total, awarded, aClass, missingCert, missingDate, missingGrade, hasEvidence };
+    return {
+      total,
+      awarded,
+      a1,
+      a2,
+      bClass,
+      unknownGrade,
+      aClass: a1 + a2,
+      missingCert,
+      missingDate,
+      missingGrade: unknownGrade,
+      hasEvidence,
+    };
   }, [memberExperiences]);
 
-  // 下拉选项
   const groupOptions = useMemo(() => {
     const set = new Set(memberExperiences.map(getExperienceGroup));
     return Array.from(set).sort();
@@ -407,7 +437,6 @@ export function CollectionDetail() {
     return Array.from(set).sort().reverse();
   }, [memberExperiences]);
 
-  // 筛选与排序后的台账行
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = memberExperiences.filter((e) => {
@@ -465,7 +494,6 @@ export function CollectionDetail() {
     });
   }, [memberExperiences, query, auditFilter, groupFilter, gradeFilter, yearFilter, sortMode]);
 
-  // 穿插时间线成员
   type TimelineMember = {
     key: string;
     kind: 'experience' | 'capture';
@@ -558,8 +586,18 @@ export function CollectionDetail() {
     navigate(`/experiences/${newId}`, { state: { from: `/collections/${col.id}` } });
   };
 
-  const attachFilesToQuickExp = async (files: FileList | File[]) => {
-    if (!quickEvidenceExp) return;
+  const saveDrawerExp = async () => {
+    if (!drawerExp) return;
+    await recordHistory('experience', drawerExp.id, drawerExp);
+    const updated = { ...drawerExp, updatedAt: now() };
+    await db.experiences.put(updated);
+    setDrawerExp(updated);
+    await reloadAll();
+    toast('已保存修改');
+  };
+
+  const attachFilesToDrawerExp = async (files: FileList | File[]) => {
+    if (!drawerExp) return;
     const list = Array.from(files);
     if (list.length === 0) return;
 
@@ -574,10 +612,10 @@ export function CollectionDetail() {
       if (deduplicated) dedupCount += 1;
     }
 
-    const prevSlots = quickEvidenceExp.evidenceSlots ?? {};
-    const nextSlotIds = Array.from(new Set([...(prevSlots[quickSlot] ?? []), ...addedIds]));
-    const nextCapIds = Array.from(new Set([...quickEvidenceExp.captureIds, ...addedIds]));
-    const prevSlotText = getCompField(quickEvidenceExp, quickSlot);
+    const prevSlots = drawerExp.evidenceSlots ?? {};
+    const nextSlotIds = Array.from(new Set([...(prevSlots[drawerSlot] ?? []), ...addedIds]));
+    const nextCapIds = Array.from(new Set([...drawerExp.captureIds, ...addedIds]));
+    const prevSlotText = getCompField(drawerExp, drawerSlot);
     const mergedText = Array.from(
       new Set([
         ...(prevSlotText ? prevSlotText.split(/[,，;；]\s*/).filter(Boolean) : []),
@@ -586,26 +624,26 @@ export function CollectionDetail() {
     ).join('，');
 
     const updatedExp: Experience = {
-      ...quickEvidenceExp,
+      ...drawerExp,
       captureIds: nextCapIds,
-      evidenceSlots: { ...prevSlots, [quickSlot]: nextSlotIds },
-      customFields: { ...(quickEvidenceExp.customFields ?? {}), [quickSlot]: mergedText },
+      evidenceSlots: { ...prevSlots, [drawerSlot]: nextSlotIds },
+      customFields: setCompField(drawerExp, drawerSlot, mergedText),
       updatedAt: now(),
     };
 
-    await recordHistory('experience', updatedExp.id, quickEvidenceExp);
+    await recordHistory('experience', updatedExp.id, drawerExp);
     await db.experiences.put(updatedExp);
-    setQuickEvidenceExp(updatedExp);
+    setDrawerExp(updatedExp);
     await reloadAll();
     toast(
-      `已挂载 ${addedIds.length} 份材料到「${quickSlot}」${dedupCount ? `（其中 ${dedupCount} 份复用已有原件）` : ''}`,
+      `已挂载 ${addedIds.length} 份材料到「${drawerSlot}」${dedupCount ? `（其中 ${dedupCount} 份复用已有原件）` : ''}`,
     );
   };
 
   const handleExportEvidence = async () => {
     const count = await exportEvidenceZip(filteredRows, captures, `${col.title}-佐证材料`);
     if (count === 0) {
-      toast('当前筛选结果里还没有挂载本地图片/文件，可先点击行尾「补图」挂载证书');
+      toast('当前筛选结果里还没有挂载本地图片/文件，点任意行即可在右侧抽屉快速补图');
     } else {
       toast(`已打包导出 ${count} 份佐证原件`);
     }
@@ -629,6 +667,8 @@ export function CollectionDetail() {
     setYearFilter('all');
   };
 
+  const pct = (n: number) => (kpi.total > 0 ? `${Math.round((n / kpi.total) * 100)}%` : '0%');
+
   return (
     <div className="page page-wide">
       <button className="btn ghost back" onClick={() => navigate('/collections')}>
@@ -640,7 +680,7 @@ export function CollectionDetail() {
         subtitle={
           col.description ||
           (isCompetition
-            ? '按条目管理竞赛时间、湖大分级、奖项排名与证书原件，支持缺项体检与一键交表'
+            ? '点击任意行即可在右侧抽屉快速核验分级、奖项与补传证书，无需反复跳页'
             : template?.description || '自定义台账集合')
         }
         badge={<Chip tone={isCompetition ? 'gold' : 'accent'}>{template?.name ?? '自定义'}</Chip>}
@@ -696,40 +736,78 @@ export function CollectionDetail() {
       />
 
       {isCompetition && (
-        <div className="kpi-strip">
-          <StatCard
-            label="台账总计"
-            value={kpi.total}
-            sub={`已挂佐证 ${kpi.hasEvidence} 条`}
-            tone="neutral"
-            active={auditFilter === 'all'}
-            onClick={() => setAuditFilter('all')}
-          />
-          <StatCard
-            label="已获奖项"
-            value={kpi.awarded}
-            sub={`A 类竞赛 ${kpi.aClass} 项`}
-            tone="gold"
-            active={auditFilter === 'awarded'}
-            onClick={() => setAuditFilter(auditFilter === 'awarded' ? 'all' : 'awarded')}
-          />
-          <StatCard
-            label="缺证书佐证"
-            value={kpi.missingCert}
-            sub="已获奖但未挂证书"
-            tone={kpi.missingCert > 0 ? 'warn' : 'emerald'}
-            active={auditFilter === 'missingCert'}
-            onClick={() => setAuditFilter(auditFilter === 'missingCert' ? 'all' : 'missingCert')}
-          />
-          <StatCard
-            label="时间待确认"
-            value={kpi.missingDate}
-            sub={`分级待确认 ${kpi.missingGrade} 项`}
-            tone="accent"
-            active={auditFilter === 'missingDate'}
-            onClick={() => setAuditFilter(auditFilter === 'missingDate' ? 'all' : 'missingDate')}
-          />
-        </div>
+        <>
+          <div className="kpi-strip">
+            <StatCard
+              label="台账总计"
+              value={kpi.total}
+              sub={`已挂佐证 ${kpi.hasEvidence} 条`}
+              tone="neutral"
+              active={auditFilter === 'all'}
+              onClick={() => setAuditFilter('all')}
+            />
+            <StatCard
+              label="已获奖项"
+              value={kpi.awarded}
+              sub={`A 类竞赛 ${kpi.aClass} 项`}
+              tone="gold"
+              active={auditFilter === 'awarded'}
+              onClick={() => setAuditFilter(auditFilter === 'awarded' ? 'all' : 'awarded')}
+            />
+            <StatCard
+              label="缺证书佐证"
+              value={kpi.missingCert}
+              sub="已获奖但未挂证书"
+              tone={kpi.missingCert > 0 ? 'warn' : 'emerald'}
+              active={auditFilter === 'missingCert'}
+              onClick={() => setAuditFilter(auditFilter === 'missingCert' ? 'all' : 'missingCert')}
+            />
+            <StatCard
+              label="时间待确认"
+              value={kpi.missingDate}
+              sub={`分级待确认 ${kpi.missingGrade} 项`}
+              tone="accent"
+              active={auditFilter === 'missingDate'}
+              onClick={() => setAuditFilter(auditFilter === 'missingDate' ? 'all' : 'missingDate')}
+            />
+          </div>
+
+          {kpi.total > 0 && (
+            <div className="grade-bar-card">
+              <div className="grade-bar-head">
+                <span className="small">湖大分级结构分布</span>
+                <span className="muted small tabular">
+                  已定级 {kpi.total - kpi.unknownGrade}/{kpi.total}（
+                  {Math.round(((kpi.total - kpi.unknownGrade) / kpi.total) * 100)}%）
+                </span>
+              </div>
+              <div className="grade-bar-track">
+                {kpi.a1 > 0 && <div className="seg seg-a1" style={{ width: pct(kpi.a1) }} title={`A1: ${kpi.a1}`} />}
+                {kpi.a2 > 0 && <div className="seg seg-a2" style={{ width: pct(kpi.a2) }} title={`A2: ${kpi.a2}`} />}
+                {kpi.bClass > 0 && (
+                  <div className="seg seg-b" style={{ width: pct(kpi.bClass) }} title={`B1/B2: ${kpi.bClass}`} />
+                )}
+                {kpi.unknownGrade > 0 && (
+                  <div className="seg seg-u" style={{ width: pct(kpi.unknownGrade) }} title={`待确认: ${kpi.unknownGrade}`} />
+                )}
+              </div>
+              <div className="grade-bar-legend">
+                <button type="button" onClick={() => setGradeFilter(gradeFilter === 'A1' ? 'all' : 'A1')}>
+                  <i className="dot seg-a1" /> A1 ({kpi.a1})
+                </button>
+                <button type="button" onClick={() => setGradeFilter(gradeFilter === 'A2' ? 'all' : 'A2')}>
+                  <i className="dot seg-a2" /> A2 ({kpi.a2})
+                </button>
+                <button type="button" onClick={() => setGradeFilter(gradeFilter === 'B1' ? 'all' : 'B1')}>
+                  <i className="dot seg-b" /> B1/B2 ({kpi.bClass})
+                </button>
+                <button type="button" onClick={() => setGradeFilter(gradeFilter === '待确认' ? 'all' : '待确认')}>
+                  <i className="dot seg-u" /> 待确认 ({kpi.unknownGrade})
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       <div className="view-bar">
@@ -754,7 +832,7 @@ export function CollectionDetail() {
           </button>
         </div>
         {tab === 'table' && (
-          <div className="muted small">
+          <div className="muted small tabular">
             当前显示 <strong>{filteredRows.length}</strong> / {memberExperiences.length} 条记录
           </div>
         )}
@@ -850,7 +928,11 @@ export function CollectionDetail() {
                   {label}
                 </button>
               ))}
-              {(query || auditFilter !== 'all' || groupFilter !== 'all' || gradeFilter !== 'all' || yearFilter !== 'all') && (
+              {(query ||
+                auditFilter !== 'all' ||
+                groupFilter !== 'all' ||
+                gradeFilter !== 'all' ||
+                yearFilter !== 'all') && (
                 <button className="btn ghost small" onClick={resetFilters}>
                   重置筛选
                 </button>
@@ -877,9 +959,9 @@ export function CollectionDetail() {
                     <th style={{ width: 108 }}>时间</th>
                     <th>竞赛 / 经历名称</th>
                     {isCompetition && <th style={{ width: 106 }}>湖大分级</th>}
-                    {isCompetition && <th style={{ width: 180 }}>奖项与成绩</th>}
-                    <th style={{ width: 150 }}>佐证与体检</th>
-                    <th style={{ width: 120, textAlign: 'right' }}>操作</th>
+                    {isCompetition && <th style={{ width: 185 }}>奖项与成绩</th>}
+                    <th style={{ width: 155 }}>佐证与体检</th>
+                    <th style={{ width: 112, textAlign: 'right' }}>操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -891,16 +973,16 @@ export function CollectionDetail() {
                       .filter(Boolean)
                       .join(' · ');
                     const group = getExperienceGroup(e);
+                    const isSelected = drawerExp?.id === e.id;
 
                     return (
                       <tr
                         key={e.id}
-                        className="ledger-row"
-                        onClick={() =>
-                          navigate(`/experiences/${e.id}`, {
-                            state: { from: `/collections/${col.id}` },
-                          })
-                        }
+                        className={`ledger-row grade-accent-${gradeTone(grade)} ${isSelected ? 'selected' : ''}`}
+                        onClick={() => {
+                          setDrawerExp(e);
+                          setDrawerSlot('证书照片');
+                        }}
                       >
                         <td className="col-date">
                           <span className={!e.startAt ? 'muted' : 'tabular'}>
@@ -960,13 +1042,13 @@ export function CollectionDetail() {
                         >
                           <button
                             className="btn small"
-                            title="直接为此条记录上传证书/奖牌/合照"
+                            title="打开右侧抽屉快速编辑与补图"
                             onClick={() => {
-                              setQuickEvidenceExp(e);
-                              setQuickSlot('证书照片');
+                              setDrawerExp(e);
+                              setDrawerSlot('证书照片');
                             }}
                           >
-                            <UploadCloud size={13} /> 补图
+                            <UploadCloud size={13} /> 快编
                           </button>
                         </td>
                       </tr>
@@ -1043,73 +1125,222 @@ export function CollectionDetail() {
           </Field>
           <p className="hint-box">
             <AlertCircle size={14} style={{ verticalAlign: -2, marginRight: 6 }} />
-            每一条竞赛的具体字段（湖大分级、奖项、排名、证书槽位）保存在单条经历中，点击台账表格任意一行即可编辑。
+            每一条竞赛的具体字段（湖大分级、奖项、排名、证书槽位）保存在单条经历中，点击台账表格任意一行即可快速核验。
           </p>
         </div>
       )}
 
-      {quickEvidenceExp && (
-        <Modal
-          title="快速补充佐证材料"
-          subtitle={quickEvidenceExp.title}
-          onClose={() => setQuickEvidenceExp(null)}
-        >
-          <Field label="放入哪个佐证槽位">
-            <div className="filters">
-              {EVIDENCE_SLOTS.map((slot) => (
-                <button
-                  key={slot.key}
-                  type="button"
-                  className={`filter-btn ${quickSlot === slot.key ? 'active' : ''}`}
-                  onClick={() => setQuickSlot(slot.key)}
-                >
-                  {slot.label}
-                </button>
-              ))}
+      {/* 右侧滑出快编抽屉 */}
+      {drawerExp && (
+        <div className="drawer-backdrop" onMouseDown={() => setDrawerExp(null)}>
+          <aside className="drawer-panel" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="drawer-head">
+              <div style={{ minWidth: 0 }}>
+                <div className="row-gap" style={{ marginBottom: 4 }}>
+                  <Chip tone={gradeTone(getCompField(drawerExp, '湖大分级'))}>
+                    {getCompField(drawerExp, '湖大分级') || '分级待确认'}
+                  </Chip>
+                  <span className="muted small tabular">{drawerExp.startAt ?? '时间待确认'}</span>
+                </div>
+                <h2 className="drawer-title">{drawerExp.title}</h2>
+              </div>
+              <button className="icon-btn" onClick={() => setDrawerExp(null)} aria-label="关闭抽屉">
+                <X size={18} />
+              </button>
             </div>
-          </Field>
 
-          <div
-            className="dropzone compact-dropzone"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              if (e.dataTransfer.files.length) void attachFilesToQuickExp(e.dataTransfer.files);
-            }}
-            onClick={() => quickFileRef.current?.click()}
-          >
-            <UploadCloud size={24} />
-            <strong>拖入或点击上传图片 / PDF</strong>
-            <span className="muted small">自动写入收件箱、按 SHA-256 去重并关联到此竞赛</span>
-            <input
-              ref={quickFileRef}
-              type="file"
-              multiple
-              accept="image/*,.pdf"
-              hidden
-              onChange={(e) => {
-                if (e.target.files?.length) void attachFilesToQuickExp(e.target.files);
-                e.target.value = '';
-              }}
-            />
-          </div>
+            <div className="drawer-body">
+              <Field label="竞赛名称">
+                <input
+                  value={drawerExp.title}
+                  onChange={(e) => setDrawerExp({ ...drawerExp, title: e.target.value })}
+                />
+              </Field>
 
-          <div className="modal-actions">
-            <button
-              className="btn"
-              onClick={() => {
-                const targetId = quickEvidenceExp.id;
-                setQuickEvidenceExp(null);
-                navigate(`/experiences/${targetId}`, { state: { from: `/collections/${col.id}` } });
-              }}
-            >
-              打开完整编辑页
-            </button>
-            <button className="btn primary" onClick={() => setQuickEvidenceExp(null)}>
-              完成
-            </button>
-          </div>
-        </Modal>
+              <div className="two-col">
+                <Field label="发生时间">
+                  <input
+                    placeholder="2026-05-24"
+                    value={drawerExp.startAt ?? ''}
+                    onChange={(e) =>
+                      setDrawerExp({
+                        ...drawerExp,
+                        startAt: e.target.value || undefined,
+                        timePrecision: e.target.value
+                          ? e.target.value.length === 4
+                            ? 'year'
+                            : e.target.value.length === 7
+                              ? 'month'
+                              : 'day'
+                          : 'unknown',
+                      })
+                    }
+                  />
+                </Field>
+                <Field label="是否获奖">
+                  <select
+                    value={getCompField(drawerExp, '是否获奖')}
+                    onChange={(e) =>
+                      setDrawerExp({
+                        ...drawerExp,
+                        customFields: setCompField(drawerExp, '是否获奖', e.target.value),
+                      })
+                    }
+                  >
+                    <option value="">待核实</option>
+                    <option value="是">是</option>
+                    <option value="否">否</option>
+                  </select>
+                </Field>
+              </div>
+
+              <Field label="湖大分级（点击快选）">
+                <div className="filters">
+                  {(['A1', 'A2', 'B1', 'B2', 'C', '待确认'] as const).map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      className={`filter-btn ${getGradeBucket(getCompField(drawerExp, '湖大分级')) === g ? 'active' : ''}`}
+                      onClick={() =>
+                        setDrawerExp({
+                          ...drawerExp,
+                          customFields: setCompField(drawerExp, '湖大分级', g),
+                        })
+                      }
+                    >
+                      {g}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+
+              <div className="two-col">
+                <Field label="奖项">
+                  <input
+                    placeholder="一等奖 / 银奖"
+                    value={getCompField(drawerExp, '奖项')}
+                    onChange={(e) =>
+                      setDrawerExp({
+                        ...drawerExp,
+                        customFields: setCompField(drawerExp, '奖项', e.target.value),
+                      })
+                    }
+                  />
+                </Field>
+                <Field label="成绩 / 排名">
+                  <input
+                    placeholder="例如：1/279"
+                    value={getCompField(drawerExp, '排名') || getCompField(drawerExp, '成绩')}
+                    onChange={(e) =>
+                      setDrawerExp({
+                        ...drawerExp,
+                        customFields: setCompField(drawerExp, '排名', e.target.value),
+                      })
+                    }
+                  />
+                </Field>
+              </div>
+
+              <Field label="颁奖单位">
+                <input
+                  placeholder="主办或颁奖机构"
+                  value={getCompField(drawerExp, '颁奖单位')}
+                  onChange={(e) =>
+                    setDrawerExp({
+                      ...drawerExp,
+                      customFields: setCompField(drawerExp, '颁奖单位', e.target.value),
+                    })
+                  }
+                />
+              </Field>
+
+              <Field label="备注">
+                <textarea
+                  rows={2}
+                  value={getCompField(drawerExp, '备注')}
+                  onChange={(e) =>
+                    setDrawerExp({
+                      ...drawerExp,
+                      customFields: setCompField(drawerExp, '备注', e.target.value),
+                    })
+                  }
+                />
+              </Field>
+
+              <div className="drawer-evidence-box">
+                <div className="panel-head" style={{ marginBottom: 8 }}>
+                  <h3>快速补传佐证 ({drawerExp.captureIds.length})</h3>
+                  <div className="filters">
+                    {EVIDENCE_SLOTS.map((s) => (
+                      <button
+                        key={s.key}
+                        type="button"
+                        className={`filter-btn ${drawerSlot === s.key ? 'active' : ''}`}
+                        onClick={() => setDrawerSlot(s.key)}
+                      >
+                        {s.label.replace('照片', '')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div
+                  className="dropzone compact-dropzone"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.files.length) void attachFilesToDrawerExp(e.dataTransfer.files);
+                  }}
+                  onClick={() => drawerFileRef.current?.click()}
+                >
+                  <UploadCloud size={20} />
+                  <strong>拖入或点击上传到「{drawerSlot}」</strong>
+                  <input
+                    ref={drawerFileRef}
+                    type="file"
+                    multiple
+                    accept="image/*,.pdf"
+                    hidden
+                    onChange={(e) => {
+                      if (e.target.files?.length) void attachFilesToDrawerExp(e.target.files);
+                      e.target.value = '';
+                    }}
+                  />
+                </div>
+
+                {drawerExp.captureIds.length > 0 && (
+                  <div className="drawer-thumbs">
+                    {drawerExp.captureIds
+                      .map((cid) => captureMap.get(cid))
+                      .filter(Boolean)
+                      .map((c) => (
+                        <div key={c!.id} className="drawer-thumb-item">
+                          <CaptureThumb capture={c!} className="drawer-thumb-img" />
+                          <span className="truncate-inline small">{c!.title}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="drawer-foot">
+              <button
+                className="btn"
+                onClick={() => {
+                  const targetId = drawerExp.id;
+                  setDrawerExp(null);
+                  navigate(`/experiences/${targetId}`, { state: { from: `/collections/${col.id}` } });
+                }}
+              >
+                <ExternalLink size={14} /> 完整编辑页
+              </button>
+              <button className="btn primary" onClick={() => void saveDrawerExp()}>
+                <Save size={14} /> 保存修改
+              </button>
+            </div>
+          </aside>
+        </div>
       )}
 
       {pickOpen && (

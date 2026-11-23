@@ -7,6 +7,7 @@ import {
   Link2,
   Plus,
   Search,
+  Smartphone,
   UploadCloud,
   Video,
   X,
@@ -14,24 +15,33 @@ import {
 import { db } from '../db';
 import type { Capture, CaptureKind } from '../types';
 import {
-  captureFromFile,
   captureFromLink,
   captureFromText,
   humanSize,
   now,
   recordHistory,
+  saveFileCaptureDedup,
   uid,
 } from '../lib/utils';
+import { resolveCaptureBlob } from '../lib/tauriBridge';
 import { Chip, Empty, Field, Modal, PageHead, useToast } from '../components/common';
+import { LanDropModal } from '../components/LanDropModal';
 
 function CapturePreview({ capture }: { capture: Capture }) {
   const [url, setUrl] = useState('');
   useEffect(() => {
-    if (!capture.blob) return;
-    const u = URL.createObjectURL(capture.blob);
-    setUrl(u);
-    return () => URL.revokeObjectURL(u);
-  }, [capture.blob]);
+    let active = true;
+    let objUrl = '';
+    void resolveCaptureBlob(capture).then((blob) => {
+      if (!active || !blob) return;
+      objUrl = URL.createObjectURL(blob);
+      setUrl(objUrl);
+    });
+    return () => {
+      active = false;
+      if (objUrl) URL.revokeObjectURL(objUrl);
+    };
+  }, [capture]);
 
   if (capture.kind === 'image' && url) {
     return <img className="preview-media" src={url} alt={capture.title} />;
@@ -67,11 +77,20 @@ function CapturePreview({ capture }: { capture: Capture }) {
 function Thumb({ capture }: { capture: Capture }) {
   const [url, setUrl] = useState('');
   useEffect(() => {
-    if (capture.kind !== 'image' || !capture.blob) return;
-    const u = URL.createObjectURL(capture.blob);
-    setUrl(u);
-    return () => URL.revokeObjectURL(u);
-  }, [capture.kind, capture.blob]);
+    if (capture.kind !== 'image') return;
+    let active = true;
+    let objUrl = '';
+    void resolveCaptureBlob(capture).then((blob) => {
+      if (!active || !blob) return;
+      objUrl = URL.createObjectURL(blob);
+      setUrl(objUrl);
+    });
+    return () => {
+      active = false;
+      if (objUrl) URL.revokeObjectURL(objUrl);
+    };
+  }, [capture]);
+
   if (url) return <img className="thumb" src={url} alt="" />;
   const Icon =
     capture.kind === 'video'
@@ -107,6 +126,7 @@ export default function Inbox() {
   const [draft, setDraft] = useState({ title: '', note: '', capturedAt: '', tags: '' });
   const [text, setText] = useState('');
   const [link, setLink] = useState('');
+  const [lanOpen, setLanOpen] = useState(false);
   const folderRef = useRef<HTMLInputElement | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -118,19 +138,14 @@ export default function Inbox() {
     void reload();
   }, []);
 
-  const addCaptures = async (items: Capture[]) => {
+  const handleFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files);
     let added = 0;
     let skipped = 0;
-    for (const c of items) {
-      if (c.sha256) {
-        const dup = await db.captures.where('sha256').equals(c.sha256).first();
-        if (dup) {
-          skipped += 1;
-          continue;
-        }
-      }
-      await db.captures.put(c);
-      added += 1;
+    for (const f of list) {
+      const { deduplicated } = await saveFileCaptureDedup(f, 'web');
+      if (deduplicated) skipped += 1;
+      else added += 1;
     }
     await reload();
     if (added && skipped) toast(`已收进 ${added} 条资料，跳过 ${skipped} 条重复原件`);
@@ -138,11 +153,10 @@ export default function Inbox() {
     else if (skipped) toast(`${skipped} 条内容相同，已自动去重`);
   };
 
-  const handleFiles = async (files: FileList | File[]) => {
-    const list = Array.from(files);
-    const items: Capture[] = [];
-    for (const f of list) items.push(await captureFromFile(f, 'web'));
-    await addCaptures(items);
+  const addSimpleCapture = async (c: Capture) => {
+    await db.captures.put(c);
+    await reload();
+    toast('已收进收件箱');
   };
 
   const onDrop = async (e: DragEvent) => {
@@ -223,9 +237,14 @@ export default function Inbox() {
         title="统一收件箱"
         subtitle="证书、合照、截图、PDF、一句话备忘都先扔进来，SHA-256 自动去重，稍后再关联到台账"
         actions={
-          <button className="btn" onClick={() => folderRef.current?.click()}>
-            <FolderOpen size={15} /> 批量导入文件夹
-          </button>
+          <>
+            <button className="btn primary" onClick={() => setLanOpen(true)}>
+              <Smartphone size={15} /> 手机扫码传图
+            </button>
+            <button className="btn" onClick={() => folderRef.current?.click()}>
+              <FolderOpen size={15} /> 批量导入文件夹
+            </button>
+          </>
         }
       />
 
@@ -279,7 +298,7 @@ export default function Inbox() {
           >
             <UploadCloud size={24} />
             <strong>拖拽图片、证书 PDF、视频到这里，或点击选择文件</strong>
-            <span className="muted small">相同原件只保存一份，支持一次多选</span>
+            <span className="muted small">桌面端自动落盘到本地目录并按 SHA-256 去重</span>
             <input
               ref={fileRef}
               type="file"
@@ -305,7 +324,7 @@ export default function Inbox() {
               className="btn primary"
               disabled={!text.trim()}
               onClick={async () => {
-                await addCaptures([captureFromText(text)]);
+                await addSimpleCapture(captureFromText(text));
                 setText('');
               }}
             >
@@ -325,7 +344,7 @@ export default function Inbox() {
               className="btn primary"
               disabled={!link.trim()}
               onClick={async () => {
-                await addCaptures([captureFromLink(link)]);
+                await addSimpleCapture(captureFromLink(link));
                 setLink('');
               }}
             >
@@ -361,7 +380,12 @@ export default function Inbox() {
         <Empty
           icon={<ImageIcon size={34} />}
           title="收件箱里暂时没有资料"
-          desc="先把证书照片、合照、PDF 或一句话线索拖进来，之后随时关联到竞赛台账。"
+          desc="你可以直接拖入文件，或点右上角「手机扫码传图」把相册里的证书和合照传进来。"
+          action={
+            <button className="btn primary" onClick={() => setLanOpen(true)}>
+              <Smartphone size={15} /> 手机扫码传图
+            </button>
+          }
         />
       ) : (
         <div className="capture-grid">
@@ -377,7 +401,7 @@ export default function Inbox() {
                   <span className="tabular">{c.capturedAt ?? c.importedAt.slice(0, 10)}</span>
                 </div>
                 <div className="muted small">
-                  {humanSize(c.sizeBytes)} · {c.source}
+                  {humanSize(c.sizeBytes)} · {c.source === 'mobile_lan' ? '手机快传' : c.source}
                 </div>
               </div>
             </button>
@@ -446,6 +470,8 @@ export default function Inbox() {
           </div>
         </Modal>
       )}
+
+      {lanOpen && <LanDropModal onClose={() => setLanOpen(false)} onReceived={() => void reload()} />}
     </div>
   );
 }

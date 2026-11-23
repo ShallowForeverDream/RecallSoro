@@ -2,20 +2,35 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Database,
   Download,
+  FolderOpen,
   HardDrive,
+  RefreshCw,
   ShieldCheck,
   Smartphone,
   Upload,
 } from 'lucide-react';
 import { db } from '../db';
-import { exportBackup, humanSize, importBackup } from '../lib/utils';
+import type { Capture } from '../types';
+import { exportBackup, extractFacts, humanSize, importBackup, now, uid } from '../lib/utils';
+import {
+  getStorageInfo,
+  isTauriDesktop,
+  migrateIndexedDbBlobsToDisk,
+  openDataDir,
+  scanWatchFolder,
+  type StorageInfo,
+} from '../lib/tauriBridge';
 import { Chip, Field, PageHead, useToast } from '../components/common';
+import { LanDropModal } from '../components/LanDropModal';
 
 export default function Settings() {
   const toast = useToast();
-  const [stats, setStats] = useState({ captures: 0, experiences: 0, collections: 0, bytes: 0 });
+  const [stats, setStats] = useState({ captures: 0, experiences: 0, collections: 0, bytes: 0, idbBlobs: 0 });
+  const [diskInfo, setDiskInfo] = useState<StorageInfo | null>(null);
   const [cloudAi, setCloudAi] = useState('off');
+  const [watchFolder, setWatchFolder] = useState('');
   const [busy, setBusy] = useState(false);
+  const [lanOpen, setLanOpen] = useState(false);
   const mergeRef = useRef<HTMLInputElement>(null);
   const replaceRef = useRef<HTMLInputElement>(null);
 
@@ -25,14 +40,19 @@ export default function Settings() {
       db.experiences.count(),
       db.collections.count(),
       db.settings.get('cloudAi'),
-    ]).then(([c, e, col, s]) => {
+      db.settings.get('watchFolder'),
+      getStorageInfo().catch(() => null),
+    ]).then(([c, e, col, s, wf, disk]) => {
       setStats({
         captures: c.length,
         experiences: e,
         collections: col,
         bytes: c.reduce((sum, x) => sum + x.sizeBytes, 0),
+        idbBlobs: c.filter((x) => Boolean(x.blob)).length,
       });
       setCloudAi(s?.value ?? 'off');
+      setWatchFolder(wf?.value ?? '');
+      setDiskInfo(disk);
     });
 
   useEffect(() => {
@@ -70,18 +90,82 @@ export default function Settings() {
     }
   };
 
+  const doMigrateToDisk = async () => {
+    setBusy(true);
+    try {
+      const res = await migrateIndexedDbBlobsToDisk();
+      loadStats();
+      toast(`已将 ${res.migrated} 份原件落盘到本地目录，释放 ${humanSize(res.freedBytes)} 浏览器缓存`);
+    } catch (e) {
+      toast(`迁移失败：${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doScanWatchFolder = async () => {
+    if (!watchFolder.trim()) {
+      toast('请先填写本机同步文件夹路径');
+      return;
+    }
+    setBusy(true);
+    try {
+      await db.settings.put({ key: 'watchFolder', value: watchFolder.trim() });
+      const existing = await db.captures.toArray();
+      const known = existing.map((c) => c.sha256).filter(Boolean);
+      const ingested = await scanWatchFolder(watchFolder.trim(), known);
+      let added = 0;
+      for (const item of ingested) {
+        const kind: Capture['kind'] = item.mimeType.startsWith('image/')
+          ? 'image'
+          : item.mimeType.startsWith('video/')
+            ? 'video'
+            : 'file';
+        const cap: Capture = {
+          id: uid(),
+          kind,
+          originalName: item.originalName,
+          mimeType: item.mimeType,
+          sizeBytes: item.sizeBytes,
+          sha256: item.sha256,
+          source: 'watch_folder',
+          capturedAt: item.modifiedMs ? new Date(item.modifiedMs).toISOString().slice(0, 10) : undefined,
+          importedAt: now(),
+          status: 'ready',
+          title: item.originalName.replace(/\.[^.]+$/, ''),
+          note: '',
+          tags: ['同步目录'],
+          facts: [],
+        };
+        cap.facts = extractFacts(cap);
+        await db.captures.put(cap);
+        added += 1;
+      }
+      loadStats();
+      toast(added > 0 ? `从同步目录吸入 ${added} 份新原件` : '同步目录中没有新的未收录文件');
+    } catch (e) {
+      toast(`扫描失败：${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const desktop = isTauriDesktop();
+
   return (
     <div className="page">
       <PageHead
         title="设置与备份"
-        subtitle="数据全部保存在本机，支持增量合并导入与完整迁移备份"
+        subtitle="本机原件落盘存储、手机扫码快传、同步目录吸入与增量迁移"
       />
 
       <div className="settings-grid">
         <section className="panel">
           <div className="panel-head">
-            <h3>本机数据概览</h3>
-            <HardDrive size={17} className="muted" />
+            <h3>本机原件存储</h3>
+            <Chip tone={desktop ? 'emerald' : 'neutral'}>
+              {desktop ? '桌面端本地目录' : '浏览器预览模式'}
+            </Chip>
           </div>
           <div className="big-stats">
             <div>
@@ -93,17 +177,37 @@ export default function Settings() {
               <span>结构经历</span>
             </div>
             <div>
-              <strong className="tabular">{stats.collections}</strong>
-              <span>台账集合</span>
+              <strong className="tabular">{diskInfo ? diskInfo.blobCount : stats.idbBlobs}</strong>
+              <span>{diskInfo ? '已落盘原件' : '缓存原件'}</span>
             </div>
             <div>
-              <strong className="tabular">{humanSize(stats.bytes)}</strong>
-              <span>原件体积</span>
+              <strong className="tabular">
+                {humanSize(diskInfo ? diskInfo.totalBytes : stats.bytes)}
+              </strong>
+              <span>原件占用</span>
             </div>
           </div>
-          <p className="hint-box">
-            卸载应用或更换设备前请先导出完整备份 ZIP。后续版本将支持通过 Tauri 侧把原件直接落盘到可见文件夹。
-          </p>
+
+          {diskInfo && (
+            <p className="hint-box" style={{ wordBreak: 'break-all' }}>
+              本地原件目录：<code>{diskInfo.blobsDir}</code>
+            </p>
+          )}
+
+          <div className="row-gap" style={{ marginTop: 14 }}>
+            <button
+              className="btn"
+              disabled={!desktop || busy}
+              onClick={() => void openDataDir().catch((e) => toast(String(e)))}
+            >
+              <FolderOpen size={15} /> 打开本地数据目录
+            </button>
+            {desktop && stats.idbBlobs > 0 && (
+              <button className="btn primary" disabled={busy} onClick={() => void doMigrateToDisk()}>
+                <HardDrive size={15} /> 迁移 {stats.idbBlobs} 份缓存原件到本地磁盘
+              </button>
+            )}
+          </div>
         </section>
 
         <section className="panel">
@@ -112,17 +216,13 @@ export default function Settings() {
             <Database size={17} className="muted" />
           </div>
           <p className="muted small" style={{ marginBottom: 14 }}>
-            推荐日常使用「增量合并导入」（自动按 ID 与 SHA-256 去重，不会覆盖你已经挂载的证书原图）。
+            推荐日常使用「增量合并导入」（按 ID 与 SHA-256 自动去重，保留你已挂好的证书原图）。
           </p>
           <div className="stack-actions">
             <button className="btn primary wide" disabled={busy} onClick={() => void doExport()}>
               <Download size={15} /> 导出完整备份 ZIP
             </button>
-            <button
-              className="btn wide"
-              disabled={busy}
-              onClick={() => mergeRef.current?.click()}
-            >
+            <button className="btn wide" disabled={busy} onClick={() => mergeRef.current?.click()}>
               <Upload size={15} /> 增量合并导入 ZIP（推荐）
             </button>
             <button
@@ -155,23 +255,39 @@ export default function Settings() {
               e.target.value = '';
             }}
           />
-          <p className="hint-box">
-            导出原件不会自动脱敏，证书照片可能包含身份证号、学号或二维码，外发前请自行核对。
-          </p>
         </section>
 
         <section className="panel">
           <div className="panel-head">
-            <h3>手机轻量传图入口</h3>
-            <Chip tone="accent">下一阶段</Chip>
+            <h3>手机传图与同步目录</h3>
+            <Chip tone="accent">轻量采集</Chip>
           </div>
-          <div className="row-gap" style={{ marginBottom: 10 }}>
-            <Smartphone size={18} className="muted" />
-            <span className="small">免装手机 App · 局域网扫码直传收件箱</span>
-          </div>
-          <p className="muted small" style={{ lineHeight: 1.7 }}>
-            下一阶段将在桌面端 Rust 侧内置轻量局域网接收服务：点开二维码后，手机微信/浏览器扫码即可把刚拍的证书、奖牌和合照直接传进本机收件箱，并支持监听网盘同步目录兜底。
+          <p className="muted small" style={{ marginBottom: 12 }}>
+            同 Wi-Fi 下直接扫码传图；出门在外可把手机照片存进网盘/Syncthing 同步目录，回电脑一键吸入。
           </p>
+          <button className="btn primary wide" onClick={() => setLanOpen(true)}>
+            <Smartphone size={15} /> 打开局域网手机扫码传图
+          </button>
+
+          <div style={{ marginTop: 16 }}>
+            <Field
+              label="收件箱同步目录（可选）"
+              hint="例如：D:\\OneDrive\\RecallSoro-Inbox"
+            >
+              <input
+                value={watchFolder}
+                placeholder="输入本机同步文件夹完整路径"
+                onChange={(e) => setWatchFolder(e.target.value)}
+              />
+            </Field>
+            <button
+              className="btn wide"
+              disabled={!desktop || busy}
+              onClick={() => void doScanWatchFolder()}
+            >
+              <RefreshCw size={14} /> 立即扫描同步目录并吸入新原件
+            </button>
+          </div>
         </section>
 
         <section className="panel">
@@ -179,7 +295,7 @@ export default function Settings() {
             <h3>隐私与识别边界</h3>
             <ShieldCheck size={17} className="muted" />
           </div>
-          <Field label="云端 AI 识别" hint="默认关闭，当前仅本地提取哈希、尺寸与日期线索">
+          <Field label="云端 AI 识别" hint="默认关闭，仅本地提取哈希、尺寸与日期线索">
             <select
               value={cloudAi}
               onChange={(e) => {
@@ -192,11 +308,16 @@ export default function Settings() {
               <option value="future">后续版本开放</option>
             </select>
           </Field>
+          <p className="hint-box">
+            导出原件不会自动脱敏，外发证书前请自行检查身份证号、学号和二维码。
+          </p>
           <p className="muted small" style={{ marginTop: 12 }}>
-            <strong>RecallSoro</strong> v0.2 · 个人电子经历总台账
+            <strong>RecallSoro</strong> v0.3 · 个人电子经历总台账
           </p>
         </section>
       </div>
+
+      {lanOpen && <LanDropModal onClose={() => setLanOpen(false)} onReceived={loadStats} />}
     </div>
   );
 }

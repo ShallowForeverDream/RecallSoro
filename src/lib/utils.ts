@@ -1,6 +1,7 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import type { Capture, Collection, Experience, Fact, Relation, Setting, Template } from '../types';
 import { db, SYSTEM_TEMPLATES, type HistoryRecord } from '../db';
+import { isTauriDesktop, resolveCaptureBlob, saveBlobToLocalDisk } from './tauriBridge';
 
 export const uid = () => crypto.randomUUID();
 export const now = () => new Date().toISOString();
@@ -98,17 +99,23 @@ export async function captureFromFile(file: File, source: string): Promise<Captu
     if (size) base.facts.push({ id: uid(), type: 'dimensions', value: size, confidence: 1, source: 'local', createdAt: now() });
   }
   base.facts.push(...extractFacts(base));
-  // 文件名里的日期只是线索，不替用户确定事件时间。
   for (const f of base.facts) if (f.type === 'date') f.confidence = 0.5;
   return base;
 }
 
-/** 将文件入库并按 SHA-256 去重，返回最终落库的 Capture（可能是已存在的重复项） */
+/** 将文件入库并按 SHA-256 去重；桌面端自动落盘到本地 blobs 目录 */
 export async function saveFileCaptureDedup(file: File, source: string): Promise<{ capture: Capture; deduplicated: boolean }> {
   const draft = await captureFromFile(file, source);
   if (draft.sha256) {
     const existing = await db.captures.where('sha256').equals(draft.sha256).first();
     if (existing) return { capture: existing, deduplicated: true };
+  }
+  if (isTauriDesktop() && draft.blob) {
+    const stored = await saveBlobToLocalDisk(draft.blob);
+    if (stored) {
+      draft.sha256 = stored.sha256;
+      draft.blob = undefined;
+    }
   }
   await db.captures.put(draft);
   return { capture: draft, deduplicated: false };
@@ -218,9 +225,10 @@ export async function exportBackup() {
     'backup.json': strToU8(JSON.stringify(meta, null, 2)),
   };
   for (const c of captures) {
-    if (c.blob) {
+    const resolved = await resolveCaptureBlob(c);
+    if (resolved) {
       files[c.id] = `files/${c.id}`;
-      entries[`files/${c.id}`] = new Uint8Array(await c.blob.arrayBuffer());
+      entries[`files/${c.id}`] = new Uint8Array(await resolved.arrayBuffer());
     }
   }
   entries['backup.json'] = strToU8(JSON.stringify(meta, null, 2));
@@ -242,7 +250,24 @@ export async function importBackup(file: File, mode: 'merge' | 'replace' = 'merg
     collectionsMerged: 0,
   };
 
+  const desktop = isTauriDesktop();
+
   if (mode === 'replace') {
+    const preparedCaptures: Capture[] = [];
+    for (const c of meta.captures) {
+      const path = meta.files?.[c.id];
+      let blob = path && data[path] ? new Blob([data[path] as BlobPart], { type: c.mimeType }) : undefined;
+      let sha256 = c.sha256;
+      if (desktop && blob) {
+        const stored = await saveBlobToLocalDisk(blob);
+        if (stored) {
+          sha256 = stored.sha256;
+          blob = undefined;
+        }
+      }
+      preparedCaptures.push({ ...c, sha256, blob });
+    }
+
     await db.transaction('rw', [db.captures, db.experiences, db.templates, db.collections, db.relations, db.settings], async () => {
       await Promise.all([
         db.captures.clear(),
@@ -251,12 +276,8 @@ export async function importBackup(file: File, mode: 'merge' | 'replace' = 'merg
         db.relations.clear(),
         db.settings.clear(),
       ]);
-      for (const c of meta.captures) {
-        const path = meta.files?.[c.id];
-        const blob = path && data[path] ? new Blob([data[path] as BlobPart], { type: c.mimeType }) : undefined;
-        await db.captures.put({ ...c, blob });
-        summary.capturesAdded += 1;
-      }
+      await db.captures.bulkPut(preparedCaptures);
+      summary.capturesAdded = preparedCaptures.length;
       await db.experiences.bulkPut(meta.experiences);
       summary.experiencesAdded = meta.experiences.length;
       const mergedTemplates = SYSTEM_TEMPLATES.slice();
@@ -272,28 +293,41 @@ export async function importBackup(file: File, mode: 'merge' | 'replace' = 'merg
     return summary;
   }
 
-  // 增量合并模式：保留本地已有图片、佐证槽位和手动修改
-  await db.transaction('rw', [db.captures, db.experiences, db.templates, db.collections, db.relations], async () => {
-    const existingCaptures = await db.captures.toArray();
-    const shaMap = new Map(existingCaptures.filter((c) => c.sha256).map((c) => [c.sha256, c.id]));
-    const existingCapIds = new Set(existingCaptures.map((c) => c.id));
-    const capIdRemap = new Map<string, string>();
+  // 增量合并模式：先准备落盘，再进事务写入
+  const existingCaptures = await db.captures.toArray();
+  const shaMap = new Map(existingCaptures.filter((c) => c.sha256).map((c) => [c.sha256, c.id]));
+  const existingCapIds = new Set(existingCaptures.map((c) => c.id));
+  const capIdRemap = new Map<string, string>();
+  const newCapturesToInsert: Capture[] = [];
 
-    for (const c of meta.captures) {
-      if (c.sha256 && shaMap.has(c.sha256)) {
-        capIdRemap.set(c.id, shaMap.get(c.sha256)!);
-        continue;
-      }
-      if (existingCapIds.has(c.id)) {
-        capIdRemap.set(c.id, c.id);
-        continue;
-      }
-      const path = meta.files?.[c.id];
-      const blob = path && data[path] ? new Blob([data[path] as BlobPart], { type: c.mimeType }) : undefined;
-      await db.captures.put({ ...c, blob });
+  for (const c of meta.captures) {
+    if (c.sha256 && shaMap.has(c.sha256)) {
+      capIdRemap.set(c.id, shaMap.get(c.sha256)!);
+      continue;
+    }
+    if (existingCapIds.has(c.id)) {
       capIdRemap.set(c.id, c.id);
-      if (c.sha256) shaMap.set(c.sha256, c.id);
-      summary.capturesAdded += 1;
+      continue;
+    }
+    const path = meta.files?.[c.id];
+    let blob = path && data[path] ? new Blob([data[path] as BlobPart], { type: c.mimeType }) : undefined;
+    let sha256 = c.sha256;
+    if (desktop && blob) {
+      const stored = await saveBlobToLocalDisk(blob);
+      if (stored) {
+        sha256 = stored.sha256;
+        blob = undefined;
+      }
+    }
+    newCapturesToInsert.push({ ...c, sha256, blob });
+    capIdRemap.set(c.id, c.id);
+    if (sha256) shaMap.set(sha256, c.id);
+  }
+
+  await db.transaction('rw', [db.captures, db.experiences, db.templates, db.collections, db.relations], async () => {
+    if (newCapturesToInsert.length) {
+      await db.captures.bulkPut(newCapturesToInsert);
+      summary.capturesAdded = newCapturesToInsert.length;
     }
 
     for (const t of meta.templates) {

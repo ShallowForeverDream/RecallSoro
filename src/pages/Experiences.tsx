@@ -17,6 +17,7 @@ import {
 import { db } from '../db';
 import type { Capture, Experience, Template, TimePrecision } from '../types';
 import { now, recordHistory, saveFileCaptureDedup, uid } from '../lib/utils';
+import { resolveCaptureBlob } from '../lib/tauriBridge';
 import {
   auditCompetition,
   EVIDENCE_SLOTS,
@@ -48,11 +49,19 @@ function CaptureThumbBox({
 }) {
   const [url, setUrl] = useState('');
   useEffect(() => {
-    if (capture.kind !== 'image' || !capture.blob) return;
-    const u = URL.createObjectURL(capture.blob);
-    setUrl(u);
-    return () => URL.revokeObjectURL(u);
-  }, [capture.kind, capture.blob]);
+    if (capture.kind !== 'image') return;
+    let active = true;
+    let objUrl = '';
+    void resolveCaptureBlob(capture).then((blob) => {
+      if (!active || !blob) return;
+      objUrl = URL.createObjectURL(blob);
+      setUrl(objUrl);
+    });
+    return () => {
+      active = false;
+      if (objUrl) URL.revokeObjectURL(objUrl);
+    };
+  }, [capture]);
 
   return (
     <div className="attached-card">
@@ -86,11 +95,18 @@ function CaptureThumbBox({
 function LightboxPreview({ capture }: { capture: Capture }) {
   const [url, setUrl] = useState('');
   useEffect(() => {
-    if (!capture.blob) return;
-    const u = URL.createObjectURL(capture.blob);
-    setUrl(u);
-    return () => URL.revokeObjectURL(u);
-  }, [capture.blob]);
+    let active = true;
+    let objUrl = '';
+    void resolveCaptureBlob(capture).then((blob) => {
+      if (!active || !blob) return;
+      objUrl = URL.createObjectURL(blob);
+      setUrl(objUrl);
+    });
+    return () => {
+      active = false;
+      if (objUrl) URL.revokeObjectURL(objUrl);
+    };
+  }, [capture]);
 
   if (capture.kind === 'image' && url) {
     return <img className="lightbox-img" src={url} alt={capture.title} />;

@@ -1,6 +1,7 @@
 import { zipSync, strToU8 } from 'fflate';
 import type { Capture, Experience } from '../types';
 import { downloadBlob } from './utils';
+import { resolveCaptureBlob } from './tauriBridge';
 
 /** 兼容中英文自定义字段键名映射 */
 const FIELD_ALIASES: Record<string, string[]> = {
@@ -238,10 +239,12 @@ export async function exportEvidenceZip(experiences: Experience[], captures: Cap
     const folder = sanitizePathPart([datePart, e.title, awardPart].filter(Boolean).join('-'));
     for (const cid of e.captureIds) {
       const cap = captureMap.get(cid);
-      if (!cap?.blob) continue;
+      if (!cap) continue;
+      const blob = await resolveCaptureBlob(cap);
+      if (!blob) continue;
       const safeName = sanitizePathPart(cap.originalName || `${cap.title}.bin`);
       const key = `${folder}/${safeName}`;
-      entries[key] = new Uint8Array(await cap.blob.arrayBuffer());
+      entries[key] = new Uint8Array(await blob.arrayBuffer());
       fileCount += 1;
     }
   }
