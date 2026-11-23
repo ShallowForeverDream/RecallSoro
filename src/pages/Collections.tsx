@@ -1176,7 +1176,18 @@ export function CollectionDetail() {
                             onClick={() => {
                               if (isCompetition) {
                                 setDrawerExp(e);
-                                setDrawerSlot('证书照片');
+                                // 定位到第一个还没填的佐证槽位，省得每次都从「证书照片」开始找
+                                const firstMissing =
+                                  audit.missingSlots.find(
+                                    (label) =>
+                                      !audit.slotFilled[
+                                        EVIDENCE_SLOTS.find((s) => s.label === label)?.key ?? ''
+                                      ],
+                                  ) ?? '证书照片';
+                                setDrawerSlot(
+                                  EVIDENCE_SLOTS.find((s) => s.label === firstMissing)?.key ??
+                                    '证书照片',
+                                );
                               } else {
                                 navigate(`/experiences/${e.id}`, {
                                   state: { from: `/collections/${col.id}` },

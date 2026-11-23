@@ -38,6 +38,20 @@ export const EVIDENCE_SLOTS = [
   { key: '相关图片', label: '相关图片', hint: '比赛现场、作品截图或其他佐证' },
 ] as const;
 
+/**
+ * 判断佐证字段里是否已有「实质内容」。
+ *
+ * 台账里写入的是「待补：请在收件箱上传证书并关联」这类提示文案，
+ * 早期只过滤「待补充|无|缺」，漏掉「待补」，导致全部获奖记录都被判为
+ * 证书齐全、缺证书统计恒为 0。这里统一识别各种占位说法。
+ */
+const PLACEHOLDER_RE = /待补|待上传|未上传|待关联|待填写|待确认|暂无|尚未|无|缺/;
+
+export function hasRealEvidenceText(text: string | undefined): boolean {
+  const v = (text ?? '').trim();
+  return Boolean(v && !PLACEHOLDER_RE.test(v));
+}
+
 export function getCompField(exp: Experience, canonicalKey: string): string {
   const cf = exp.customFields ?? {};
   const aliases = FIELD_ALIASES[canonicalKey] ?? [canonicalKey];
@@ -104,6 +118,10 @@ export interface CompetitionAudit {
   missingCertificate: boolean;
   missingAnyEvidence: boolean;
   evidenceCount: number;
+  /** 各类佐证是否齐全：证书照片 / 奖牌照片 / 合照 / 相关图片 */
+  slotFilled: Record<string, boolean>;
+  /** 缺失的佐证类别（中文标签） */
+  missingSlots: string[];
   issues: string[];
 }
 
@@ -111,17 +129,29 @@ export function auditCompetition(exp: Experience): CompetitionAudit {
   const missingDate = !exp.startAt || exp.timePrecision === 'unknown';
   const grade = getGradeBucket(getCompField(exp, '湖大分级'));
   const missingGrade = grade === '待确认';
-  const certSlots = exp.evidenceSlots?.['证书照片'] ?? [];
-  const certText = getCompField(exp, '证书照片').trim();
-  const hasCertText = Boolean(certText && !/待补充|无|缺/.test(certText));
   const awarded = isAwarded(exp);
-  const missingCertificate = awarded && certSlots.length === 0 && !hasCertText && exp.captureIds.length === 0;
+
+  // 逐槽位判断：既看 evidenceSlots 里挂了原件，也看字段里是否已有实质内容
+  const slotFilled: Record<string, boolean> = {};
+  const missingSlots: string[] = [];
+  for (const slot of EVIDENCE_SLOTS) {
+    const ids = exp.evidenceSlots?.[slot.key] ?? [];
+    const filled = ids.length > 0 || hasRealEvidenceText(getCompField(exp, slot.key));
+    slotFilled[slot.key] = filled;
+    if (!filled) missingSlots.push(slot.label);
+  }
+
+  // 口径：获奖记录若既没有挂到「证书照片」槽位、证书字段里也没有实际内容，
+  // 就判定为缺证书。不能用 captureIds 兜底——那会把「只挂了张风景照」
+  // 误判成证书齐全，从而让缺证书统计永远显示 0。
+  const missingCertificate = awarded && !slotFilled['证书照片'];
   const missingAnyEvidence = exp.captureIds.length === 0;
 
   const issues: string[] = [];
   if (missingCertificate) issues.push('缺证书');
   if (missingDate) issues.push('时间待确认');
   if (missingGrade) issues.push('分级待确认');
+  if (missingSlots.length > 0) issues.push(`缺${missingSlots.join('、')}`);
 
   return {
     missingDate,
@@ -129,6 +159,8 @@ export function auditCompetition(exp: Experience): CompetitionAudit {
     missingCertificate,
     missingAnyEvidence,
     evidenceCount: exp.captureIds.length,
+    slotFilled,
+    missingSlots,
     issues,
   };
 }
@@ -237,15 +269,40 @@ export async function exportEvidenceZip(experiences: Experience[], captures: Cap
     const datePart = e.startAt ? e.startAt.slice(0, 7) : '未定时间';
     const awardPart = getCompField(e, '奖项') || getCompField(e, '湖大分级') || '';
     const folder = sanitizePathPart([datePart, e.title, awardPart].filter(Boolean).join('-'));
-    for (const cid of e.captureIds) {
+
+    // 按佐证槽位分类：证书照片 / 奖牌照片 / 合照 / 相关图片 各一个子文件夹，
+    // 未归类的原件进「其他佐证」。交材料时不用再手工分拣。
+    const slotBuckets: [string, string[]][] = [];
+    for (const slot of EVIDENCE_SLOTS) {
+      const ids = e.evidenceSlots?.[slot.key] ?? [];
+      if (ids.length) slotBuckets.push([slot.label, ids]);
+    }
+
+    const assigned = new Set<string>();
+    for (const [, ids] of slotBuckets) for (const id of ids) assigned.add(id);
+
+    const emit = async (cid: string, subFolder: string) => {
       const cap = captureMap.get(cid);
-      if (!cap) continue;
+      if (!cap) return;
       const blob = await resolveCaptureBlob(cap);
-      if (!blob) continue;
+      if (!blob) return;
       const safeName = sanitizePathPart(cap.originalName || `${cap.title}.bin`);
-      const key = `${folder}/${safeName}`;
+      let key = `${subFolder}/${safeName}`;
+      let n = 2;
+      while (entries[key]) {
+        key = `${subFolder}/${safeName.replace(/(\.[^.]+)?$/, `-${n}$1`)}`;
+        n += 1;
+      }
       entries[key] = new Uint8Array(await blob.arrayBuffer());
       fileCount += 1;
+    };
+
+    for (const [label, ids] of slotBuckets) {
+      for (const cid of ids) await emit(cid, `${folder}/${label}`);
+    }
+    for (const cid of e.captureIds) {
+      if (assigned.has(cid)) continue;
+      await emit(cid, `${folder}/其他佐证`);
     }
   }
 

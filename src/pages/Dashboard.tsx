@@ -87,6 +87,11 @@ export default function Dashboard() {
   );
 
   const credentialExpiries = useMemo(() => auditCredentialExpiries(experiences), [experiences]);
+  // 只把临期（90 天内）与已过期的挑出来做提醒，其余证件仍可查看但不占用提醒位
+  const expiringSoon = useMemo(
+    () => credentialExpiries.filter((x) => x.state !== 'valid'),
+    [credentialExpiries],
+  );
 
   const acceptSuggestion = async (s: MatchSuggestion) => {
     const exp = await db.experiences.get(s.experience.id);
@@ -286,7 +291,7 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="mini-list">
-              {credentialExpiries.slice(0, 6).map((item) => (
+              {(expiringSoon.length > 0 ? expiringSoon : credentialExpiries).slice(0, 6).map((item) => (
                 <button
                   key={item.experience.id}
                   className="mini-row"
