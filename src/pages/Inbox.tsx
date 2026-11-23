@@ -200,8 +200,8 @@ export default function Inbox() {
     if (!selected || !selected.sha256) return;
     setOcrBusy(true);
     try {
-      const recognized = await runLocalOcr(selected.sha256);
-      if (!recognized) {
+      const result = await runLocalOcr(selected.sha256);
+      if (!result?.text) {
         toast('未在图片中识别出文字');
         return;
       }
@@ -210,17 +210,25 @@ export default function Inbox() {
         {
           id: uid(),
           type: 'ocr' as const,
-          value: recognized.slice(0, 260),
+          value: result.text.slice(0, 260),
           confidence: 0.85,
           source: 'local' as const,
           createdAt: now(),
         },
       ];
-      const updated: Capture = { ...selected, ocrText: recognized, facts: nextFacts };
+      const updated: Capture = { ...selected, ocrText: result.text, facts: nextFacts };
       await db.captures.put(updated);
       setSelected(updated);
       await reload();
-      toast('离线 OCR 识别完成，可在「档案总览」查看智能匹配建议');
+      if (result.sensitive.length > 0) {
+        toast(
+          `OCR 完成（${result.engine}），发现 ${result.sensitive.length} 处敏感信息：${result.sensitive
+            .map((s) => s.label)
+            .join('、')}，可在图片上打开脱敏工具预置遮罩`,
+        );
+      } else {
+        toast('离线 OCR 识别完成，可在「档案总览」查看智能匹配建议');
+      }
     } catch (e) {
       toast(`OCR 失败：${String(e)}`);
     } finally {

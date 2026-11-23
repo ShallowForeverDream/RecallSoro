@@ -693,9 +693,9 @@ export function CollectionDetail() {
       });
       setPdfOpen(false);
       toast(
-        res.openedPrintWindow
-          ? `已生成证明汇编（${res.totalRecords} 条记录、${res.embeddedImages} 张佐证图），请在打印窗口选择「另存为 PDF」`
-          : `已下载证明汇编 HTML（${res.totalRecords} 条记录），用浏览器打开打印即可保存 PDF`,
+        `已生成 PDF 证明册（${res.totalRecords} 条记录、${res.embeddedImages} 张佐证图，${(
+          res.bytes / 1024
+        ).toFixed(0)} KB）：${res.fileName}`,
       );
     } catch (e) {
       toast(`生成失败：${String(e)}`);

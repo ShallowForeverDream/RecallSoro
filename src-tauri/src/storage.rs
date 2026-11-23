@@ -12,6 +12,10 @@ pub struct StorageInfo {
     pub blobs_dir: String,
     pub blob_count: usize,
     pub total_bytes: u64,
+    /// 是否已有 ledger.json 落盘
+    pub has_snapshot: bool,
+    /// ledger.json 字节数
+    pub snapshot_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -231,6 +235,7 @@ pub fn read_blob_bytes(app: &AppHandle, sha256: &str) -> Result<Vec<u8>, String>
 pub fn get_storage_info(app: &AppHandle) -> Result<StorageInfo, String> {
     let data_dir = resolve_data_dir(app)?;
     let blobs_dir = resolve_blobs_dir(app)?;
+    let ledger_path = data_dir.join("ledger").join("ledger.json");
     let mut blob_count = 0usize;
     let mut total_bytes = 0u64;
 
@@ -249,11 +254,20 @@ pub fn get_storage_info(app: &AppHandle) -> Result<StorageInfo, String> {
         }
     }
 
+    let has_snapshot = ledger_path.exists();
+    let snapshot_bytes = if has_snapshot {
+        fs::metadata(&ledger_path).map(|m| m.len()).unwrap_or(0)
+    } else {
+        0
+    };
+
     Ok(StorageInfo {
         data_dir: data_dir.to_string_lossy().to_string(),
         blobs_dir: blobs_dir.to_string_lossy().to_string(),
         blob_count,
         total_bytes,
+        has_snapshot,
+        snapshot_bytes,
     })
 }
 
@@ -282,8 +296,21 @@ pub fn open_folder_in_os(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn guess_mime_from_ext(ext: &str) -> &'static str {
-    match ext.to_ascii_lowercase().as_str() {
+/// 找到一份可用于 PDF 嵌入的中文字体（TTF 格式优先，TTC 不支持嵌入）。
+///
+/// 依次尝试黑体（simhei.ttf）、等线（Deng.ttf）、微软雅黑（msyh.ttc 不可用则跳过）。
+pub fn resolve_cjk_font_path() -> Option<PathBuf> {
+    let fonts = PathBuf::from("C:\\Windows\\Fonts");
+    for name in ["simhei.ttf", "Deng.ttf", "simkai.ttf", "simfang.ttf"] {
+        let p = fonts.join(name);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+pub fn guess_mime_from_ext(ext: &str) -> &'static str {    match ext.to_ascii_lowercase().as_str() {
         "jpg" | "jpeg" => "image/jpeg",
         "png" => "image/png",
         "webp" => "image/webp",

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
-import { Download, Eye, EyeOff, RotateCcw, Save, ShieldCheck, Trash2 } from 'lucide-react';
+import { Download, Eye, EyeOff, RotateCcw, Save, ShieldCheck, Trash2, Wand2 } from 'lucide-react';
 import { db } from '../db';
 import type { Capture, RedactionBox } from '../types';
 import { downloadBlob, recordHistory, uid } from '../lib/utils';
-import { resolveCaptureBlob } from '../lib/tauriBridge';
+import { resolveCaptureBlob, runLocalOcr } from '../lib/tauriBridge';
 import { renderRedactedBlob } from '../lib/redaction';
 import { Modal, useToast } from './common';
 
@@ -22,6 +22,7 @@ export function RedactionEditor({
   const [boxes, setBoxes] = useState<RedactionBox[]>(capture.redactions ?? []);
   const [hideMasks, setHideMasks] = useState(false);
   const [drawing, setDrawing] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const [autoBusy, setAutoBusy] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -72,6 +73,51 @@ export function RedactionEditor({
     setDrawing(null);
   };
 
+  /** 自动检测身份证号 / 学号 / 手机号 / 银行卡号，并用 OCR 坐标预置遮罩框。 */
+  const autoDetect = async () => {
+    if (!capture.sha256) {
+      toast('该资料没有本地原件，无法自动识别');
+      return;
+    }
+    setAutoBusy(true);
+    try {
+      const result = await runLocalOcr(capture.sha256);
+      if (!result?.sensitive?.length) {
+        toast(
+          result?.text
+            ? '已识别文字，但没有发现身份证号 / 学号 / 手机号 / 银行卡号'
+            : '未在图片中识别出文字',
+        );
+        return;
+      }
+      setBoxes((prev) => {
+        const next = [...prev];
+        for (const s of result.sensitive) {
+          // 留一点余量，确保号码两端都被盖住
+          const pad = 0.006;
+          const x = Math.max(0, s.x - pad);
+          const y = Math.max(0, s.y - pad);
+          const w = Math.min(1 - x, s.w + pad * 2);
+          const h = Math.min(1 - y, s.h + pad * 2);
+          const dup = next.some(
+            (b) => Math.abs(b.x - x) < 0.01 && Math.abs(b.y - y) < 0.01,
+          );
+          if (!dup) next.push({ id: uid(), x, y, w, h });
+        }
+        return next;
+      });
+      toast(
+        `自动检测到 ${result.sensitive.length} 处敏感信息：${result.sensitive
+          .map((s) => s.label)
+          .join('、')}，已预置遮罩框，可再手动调整`,
+      );
+    } catch (e) {
+      toast(`自动检测失败：${String(e)}`);
+    } finally {
+      setAutoBusy(false);
+    }
+  };
+
   const saveMasks = async () => {
     await recordHistory('capture', capture.id, capture);
     const updated: Capture = { ...capture, redactions: boxes };
@@ -114,6 +160,9 @@ export function RedactionEditor({
           </span>
         </div>
         <div className="row-gap">
+          <button className="btn small primary" disabled={autoBusy} onClick={() => void autoDetect()}>
+            <Wand2 size={13} /> {autoBusy ? '正在识别…' : '自动检测敏感信息'}
+          </button>
           <button className="btn small" onClick={() => setHideMasks((v) => !v)}>
             {hideMasks ? <Eye size={13} /> : <EyeOff size={13} />}
             {hideMasks ? '显示遮罩' : '透视原图'}

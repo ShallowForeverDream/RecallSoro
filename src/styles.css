@@ -2687,3 +2687,23 @@ p {
   align-items: center;
   gap: 4px;
 }
+
+/* 账本历史版本列表 */
+.version-list {
+  margin-top: 4px;
+  border-top: 1px solid var(--line, rgba(120, 110, 100, 0.18));
+  padding-top: 4px;
+}
+
+.version-row {
+  display: grid;
+  grid-template-columns: 190px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 2px;
+  border-bottom: 1px dashed var(--line, rgba(120, 110, 100, 0.14));
+}
+
+.version-row:last-child {
+  border-bottom: none;
+}

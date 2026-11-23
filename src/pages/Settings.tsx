@@ -25,11 +25,14 @@ import {
 import {
   getStorageInfo,
   isTauriDesktop,
+  listLedgerVersions,
   migrateIndexedDbBlobsToDisk,
   openDataDir,
   readLedgerSnapshotFromDisk,
+  restoreLedgerVersion,
   scanWatchFolder,
   writeLedgerSnapshotToDisk,
+  type LedgerVersion,
   type StorageInfo,
 } from '../lib/tauriBridge';
 import { Chip, Field, PageHead, useToast } from '../components/common';
@@ -43,6 +46,7 @@ export default function Settings() {
   const [watchFolder, setWatchFolder] = useState('');
   const [busy, setBusy] = useState(false);
   const [lanOpen, setLanOpen] = useState(false);
+  const [versions, setVersions] = useState<LedgerVersion[]>([]);
   const mergeRef = useRef<HTMLInputElement>(null);
   const replaceRef = useRef<HTMLInputElement>(null);
 
@@ -69,6 +73,7 @@ export default function Settings() {
 
   useEffect(() => {
     loadStats();
+    void loadVersions();
   }, []);
 
   const doExport = async () => {
@@ -118,9 +123,9 @@ export default function Settings() {
   const doSaveSnapshot = async () => {
     setBusy(true);
     try {
-      const bytes = await writeLedgerSnapshotToDisk();
+      const info = await writeLedgerSnapshotToDisk();
       loadStats();
-      toast(`元数据快照已写入本地目录（${humanSize(bytes)}）`);
+      toast(`元数据已落盘（${humanSize(info.bytes)}），历史版本 ${info.versionCount} 份`);
     } catch (e) {
       toast(`写入快照失败：${String(e)}`);
     } finally {
@@ -137,6 +142,33 @@ export default function Settings() {
       toast(`已从本地快照合并 ${res.experiencesAdded + res.experiencesMerged} 条经历`);
     } catch (e) {
       toast(`恢复失败：${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** 列出账本历史版本 */
+  const loadVersions = async () => {
+    try {
+      setVersions(await listLedgerVersions());
+    } catch {
+      setVersions([]);
+    }
+  };
+
+  /** 回滚到指定历史版本 */
+  const doRollback = async (versionPath: string, savedAt: string) => {
+    setBusy(true);
+    try {
+      await restoreLedgerVersion(versionPath);
+      const json = await readLedgerSnapshotFromDisk();
+      const res = await importSnapshotJson(json);
+      await loadVersions();
+      toast(
+        `已回滚到 ${savedAt.slice(0, 19).replace('T', ' ')} 的版本，合并 ${res.experiencesAdded + res.experiencesMerged} 条经历`,
+      );
+    } catch (e) {
+      toast(`回滚失败：${String(e)}`);
     } finally {
       setBusy(false);
     }
@@ -231,11 +263,33 @@ export default function Settings() {
             <p className="hint-box" style={{ wordBreak: 'break-all' }}>
               数据目录：<code>{diskInfo.dataDir}</code>
               <br />
-              元数据快照：
+              元数据账本：
               {diskInfo.hasSnapshot
-                ? `ledger-snapshot.json (${humanSize(diskInfo.snapshotBytes)}) · 每次修改自动同步`
+                ? `ledger.json (${humanSize(diskInfo.snapshotBytes)}) · 每次修改自动落盘，保留最近 30 个版本`
                 : '尚未生成，点击下方立即写入'}
             </p>
+          )}
+
+          {desktop && versions.length > 0 && (
+            <div className="version-list">
+              <div className="row-gap" style={{ margin: '16px 0 8px' }}>
+                <strong className="small">账本历史版本（{versions.length}）</strong>
+                <span className="small muted">可回滚到任一版本，回滚前会自动保留当前状态</span>
+              </div>
+              {versions.slice(0, 8).map((v) => (
+                <div key={v.path} className="version-row">
+                  <span className="small tabular">{v.savedAt.slice(0, 19).replace('T', ' ')}</span>
+                  <span className="small muted">{humanSize(v.bytes)}</span>
+                  <button
+                    className="btn small ghost"
+                    disabled={busy}
+                    onClick={() => void doRollback(v.path, v.savedAt)}
+                  >
+                    <RotateCcw size={12} /> 回滚到此版本
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
 
           <div className="row-gap" style={{ marginTop: 14 }}>

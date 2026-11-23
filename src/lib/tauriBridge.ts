@@ -111,7 +111,7 @@ export async function resolveCaptureBlob(capture: Capture): Promise<Blob | null>
   return null;
 }
 
-export async function writeLedgerSnapshotToDisk(): Promise<number> {
+export async function writeLedgerSnapshotToDisk(): Promise<LedgerSnapshotInfo> {
   const captures = await db.captures.toArray();
   const payload = {
     app: 'RecallSoro',
@@ -124,17 +124,81 @@ export async function writeLedgerSnapshotToDisk(): Promise<number> {
     relations: await db.relations.toArray(),
     settings: await db.settings.toArray(),
   };
-  return tauriInvoke<number>('write_ledger_snapshot', {
-    jsonText: JSON.stringify(payload, null, 2),
-  });
+  return writeLedgerSnapshot(JSON.stringify(payload, null, 2));
 }
 
 export async function readLedgerSnapshotFromDisk(): Promise<string> {
   return tauriInvoke<string>('read_ledger_snapshot');
 }
 
-export async function runLocalOcr(sha256: string): Promise<string> {
-  return tauriInvoke<string>('ocr_blob_windows', { sha256 });
+export interface OcrWord {
+  text: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface OcrLine {
+  text: string;
+  words: OcrWord[];
+}
+
+export interface SensitiveRegion {
+  kind: 'id_card' | 'mobile' | 'student_id' | 'bank_card' | string;
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  confidence: number;
+}
+
+export interface OcrResult {
+  text: string;
+  lines: OcrLine[];
+  width: number;
+  height: number;
+  sensitive: SensitiveRegion[];
+  engine: string;
+}
+
+export interface LedgerSnapshotInfo {
+  path: string;
+  bytes: number;
+  updatedAt: string;
+  versionCount: number;
+}
+
+export interface LedgerVersion {
+  version: number;
+  savedAt: string;
+  bytes: number;
+  path: string;
+}
+
+export async function runLocalOcr(sha256: string, lang?: string): Promise<OcrResult> {
+  return tauriInvoke<OcrResult>('ocr_blob_windows', { sha256, lang: lang ?? null });
+}
+
+export async function writeLedgerSnapshot(jsonText: string): Promise<LedgerSnapshotInfo> {
+  return tauriInvoke<LedgerSnapshotInfo>('write_ledger_snapshot', { jsonText });
+}
+
+export async function listLedgerVersions(): Promise<LedgerVersion[]> {
+  return tauriInvoke<LedgerVersion[]>('list_ledger_versions');
+}
+
+export async function restoreLedgerVersion(versionPath: string): Promise<LedgerSnapshotInfo> {
+  return tauriInvoke<LedgerSnapshotInfo>('restore_ledger_version', { versionPath });
+}
+
+export async function readCjkFontBase64(): Promise<string> {
+  return tauriInvoke<string>('read_cjk_font_base64');
+}
+
+export async function getLedgerDirInfo(): Promise<string> {
+  return tauriInvoke<string>('get_ledger_dir_info');
 }
 
 export async function getStorageInfo(): Promise<StorageInfo | null> {
