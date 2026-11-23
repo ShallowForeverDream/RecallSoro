@@ -73,20 +73,56 @@ export const SYSTEM_TEMPLATES: Template[] = [
     ],
   },
   {
+    id: 'tpl-credential',
+    name: '证件与资质',
+    slug: 'credential',
+    description: '管理四六级、软考、驾照、学生证等资质与到期提醒',
+    icon: 'ShieldCheck',
+    isSystem: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    fields: [
+      { key: '证件类别', label: '证件类别', type: 'text', placeholder: '语言成绩 / 职业资格 / 身份证明 / 荣誉资质', group: '资质信息' },
+      { key: '发证机构', label: '发证机构', type: 'text', placeholder: '教育部考试中心 / 工信部等', group: '资质信息' },
+      { key: '证件编号', label: '证件编号', type: 'text', placeholder: '证书号或成绩单号', group: '资质信息' },
+      { key: '成绩或等级', label: '成绩或等级', type: 'text', placeholder: '例如：CET-6 580分 / 软考高级', group: '资质信息' },
+      { key: '签发日期', label: '签发日期', type: 'text', placeholder: '2025-06-20', group: '有效期管理' },
+      { key: '有效期至', label: '有效期至', type: 'text', placeholder: 'YYYY-MM-DD，长期有效可留空', group: '有效期管理' },
+      { key: '证书照片', label: '证件扫描件', type: 'evidence', placeholder: '上传证件正反面或电子成绩单', group: '佐证材料' },
+      { key: '备注', label: '备注', type: 'textarea', placeholder: '存放位置、年审要求等', group: '备注' },
+    ],
+  },
+  {
+    id: 'tpl-project',
+    name: '项目',
+    slug: 'project',
+    description: '按 STAR 结构记录项目背景、技术栈、职责与量化成果',
+    icon: 'Briefcase',
+    isSystem: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    fields: [
+      { key: '技术栈', label: '技术栈', type: 'tags', placeholder: 'React, TypeScript, Rust, Tauri', group: '项目概况' },
+      { key: '角色', label: '个人角色', type: 'text', placeholder: '独立开发 / 前端负责人 / 核心成员', group: '项目概况' },
+      { key: '作品链接', label: '仓库 / 演示链接', type: 'text', placeholder: 'https://github.com/...', group: '项目概况' },
+      { key: '项目背景', label: '背景与目标 (S/T)', type: 'textarea', placeholder: '为什么要做这个项目，解决什么问题', group: 'STAR 简历素材' },
+      { key: '核心难点', label: '核心难点与方案 (A)', type: 'textarea', placeholder: '遇到了什么技术瓶颈，怎么解决的', group: 'STAR 简历素材' },
+      { key: '量化成果', label: '量化成果 (R)', type: 'textarea', placeholder: '性能提升、用户量、获奖或上线情况', group: 'STAR 简历素材' },
+    ],
+  },
+  {
     id: 'tpl-travel',
     name: '旅行',
     slug: 'travel',
-    description: '按时间线记录地点、照片与描述',
+    description: '按时间线记录地点、同行人、花费与沿途照片',
     icon: 'Map',
     isSystem: true,
     createdAt: '2026-01-01T00:00:00.000Z',
     fields: [
-      { key: 'destination', label: '目的地', type: 'text', placeholder: '城市或地区' },
-      { key: 'companions', label: '同行人', type: 'text', placeholder: '和谁一起' },
-      { key: 'transport', label: '交通', type: 'text', placeholder: '高铁 / 飞机 / 自驾' },
-      { key: 'stay', label: '住宿', type: 'text', placeholder: '住在哪里' },
-      { key: 'cost', label: '花费', type: 'text', placeholder: '大致花费' },
-      { key: 'notes', label: '旅行笔记', type: 'textarea', placeholder: '沿途见闻与感受' },
+      { key: '目的地', label: '目的地', type: 'text', placeholder: '城市或地区', group: '行程信息' },
+      { key: '同行人', label: '同行人', type: 'text', placeholder: '和谁一起', group: '行程信息' },
+      { key: '交通', label: '交通', type: 'text', placeholder: '高铁 / 飞机 / 自驾', group: '行程信息' },
+      { key: '住宿', label: '住宿', type: 'text', placeholder: '住在哪里', group: '行程信息' },
+      { key: '花费', label: '花费', type: 'text', placeholder: '大致花费', group: '行程信息' },
+      { key: '旅行笔记', label: '旅行笔记', type: 'textarea', placeholder: '沿途见闻与感受', group: '游记' },
     ],
   },
   {
@@ -98,28 +134,11 @@ export const SYSTEM_TEMPLATES: Template[] = [
     isSystem: true,
     createdAt: '2026-01-01T00:00:00.000Z',
     fields: [
-      { key: 'destination', label: '目的地', type: 'text', placeholder: '城市或地区' },
-      { key: 'companions', label: '同行人', type: 'text', placeholder: '和谁一起' },
-      { key: 'route', label: '路线', type: 'textarea', placeholder: '行程路线' },
-      { key: 'transport', label: '交通', type: 'text', placeholder: '高铁 / 飞机 / 自驾' },
-      { key: 'stay', label: '住宿', type: 'text', placeholder: '住在哪里' },
-      { key: 'cost', label: '花费', type: 'text', placeholder: '大致花费' },
-      { key: 'photos', label: '照片', type: 'evidence', placeholder: '关联旅途照片' },
-      { key: 'body', label: '游记正文', type: 'textarea', placeholder: '今天看到了什么，发生了什么' },
-    ],
-  },
-  {
-    id: 'tpl-project',
-    name: '项目',
-    slug: 'project',
-    description: '记录项目背景、职责与成果',
-    icon: 'Briefcase',
-    isSystem: true,
-    createdAt: '2026-01-01T00:00:00.000Z',
-    fields: [
-      { key: 'stack', label: '技术栈', type: 'tags', placeholder: 'React, Rust' },
-      { key: 'role', label: '职责', type: 'text', placeholder: '你负责什么' },
-      { key: 'result', label: '成果', type: 'textarea', placeholder: '产出了什么' },
+      { key: '目的地', label: '目的地', type: 'text', placeholder: '城市或地区', group: '行程信息' },
+      { key: '同行人', label: '同行人', type: 'text', placeholder: '和谁一起', group: '行程信息' },
+      { key: '路线', label: '路线', type: 'textarea', placeholder: '行程路线', group: '行程信息' },
+      { key: '花费', label: '花费', type: 'text', placeholder: '大致花费', group: '行程信息' },
+      { key: '游记正文', label: '游记正文', type: 'textarea', placeholder: '今天看到了什么，发生了什么', group: '游记' },
     ],
   },
   {
@@ -131,9 +150,9 @@ export const SYSTEM_TEMPLATES: Template[] = [
     isSystem: true,
     createdAt: '2026-01-01T00:00:00.000Z',
     fields: [
-      { key: 'school', label: '机构', type: 'text', placeholder: '学校或平台' },
-      { key: 'certificate', label: '证书', type: 'text', placeholder: '证书名称' },
-      { key: 'takeaway', label: '收获', type: 'textarea', placeholder: '学到了什么' },
+      { key: '机构', label: '学校或平台', type: 'text', placeholder: '学校 / Coursera / 公开课', group: '课程信息' },
+      { key: '证书', label: '结课证书', type: 'text', placeholder: '证书名称或编号', group: '课程信息' },
+      { key: '收获', label: '学习收获', type: 'textarea', placeholder: '学到了什么', group: '课程信息' },
     ],
   },
   {
@@ -149,14 +168,7 @@ export const SYSTEM_TEMPLATES: Template[] = [
 ];
 
 export async function initDatabase() {
-  const existing = await db.templates.toArray();
-  if (existing.length === 0) {
-    await db.templates.bulkPut(SYSTEM_TEMPLATES);
-  } else {
-    // 升级系统竞赛模板，保证新增字段与佐证槽位生效
-    const compTpl = SYSTEM_TEMPLATES.find((t) => t.id === 'tpl-competition');
-    if (compTpl) await db.templates.put(compTpl);
-  }
+  await db.templates.bulkPut(SYSTEM_TEMPLATES);
   if (!(await db.settings.get('cloudAi'))) {
     await db.settings.put({ key: 'cloudAi', value: 'off' });
   }

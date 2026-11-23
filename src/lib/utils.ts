@@ -1,10 +1,25 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import type { Capture, Collection, Experience, Fact, Relation, Setting, Template } from '../types';
 import { db, SYSTEM_TEMPLATES, type HistoryRecord } from '../db';
-import { isTauriDesktop, resolveCaptureBlob, saveBlobToLocalDisk } from './tauriBridge';
+import {
+  isTauriDesktop,
+  resolveCaptureBlob,
+  saveBlobToLocalDisk,
+  writeLedgerSnapshotToDisk,
+} from './tauriBridge';
+import { extractJpegExifDate } from './intelligence';
 
 export const uid = () => crypto.randomUUID();
 export const now = () => new Date().toISOString();
+
+let snapshotTimer: number | null = null;
+export function scheduleSnapshotSync() {
+  if (!isTauriDesktop()) return;
+  if (snapshotTimer) window.clearTimeout(snapshotTimer);
+  snapshotTimer = window.setTimeout(() => {
+    void writeLedgerSnapshotToDisk().catch(() => undefined);
+  }, 1200);
+}
 
 export async function sha256Blob(blob: Blob): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
@@ -55,6 +70,7 @@ export async function recordHistory(
     snapshot: JSON.parse(JSON.stringify(snapshot)) as unknown,
     createdAt: now(),
   });
+  scheduleSnapshotSync();
 }
 
 export function extractFacts(c: Pick<Capture, 'originalName' | 'text' | 'url' | 'mimeType' | 'kind'>): Fact[] {
@@ -95,15 +111,18 @@ export async function captureFromFile(file: File, source: string): Promise<Captu
     facts: [],
   };
   if (kind === 'image') {
-    const size = await imageSize(file);
+    const [size, exifDate] = await Promise.all([imageSize(file), extractJpegExifDate(file)]);
     if (size) base.facts.push({ id: uid(), type: 'dimensions', value: size, confidence: 1, source: 'local', createdAt: now() });
+    if (exifDate) {
+      base.facts.push({ id: uid(), type: 'exif', value: `拍摄日期 ${exifDate}`, confidence: 0.92, source: 'local', createdAt: now() });
+      base.capturedAt = exifDate;
+    }
   }
   base.facts.push(...extractFacts(base));
   for (const f of base.facts) if (f.type === 'date') f.confidence = 0.5;
   return base;
 }
 
-/** 将文件入库并按 SHA-256 去重；桌面端自动落盘到本地 blobs 目录 */
 export async function saveFileCaptureDedup(file: File, source: string): Promise<{ capture: Capture; deduplicated: boolean }> {
   const draft = await captureFromFile(file, source);
   if (draft.sha256) {
@@ -118,6 +137,7 @@ export async function saveFileCaptureDedup(file: File, source: string): Promise<
     }
   }
   await db.captures.put(draft);
+  scheduleSnapshotSync();
   return { capture: draft, deduplicated: false };
 }
 
@@ -189,14 +209,15 @@ export function downloadBlob(filename: string, blob: Blob) {
 interface BackupMeta {
   app: 'RecallSoro';
   version: number;
-  exportedAt: string;
+  exportedAt?: string;
+  savedAt?: string;
   captures: Omit<Capture, 'blob'>[];
   experiences: Experience[];
   templates: Template[];
   collections: Collection[];
   relations: Relation[];
   settings: Setting[];
-  files: Record<string, string>;
+  files?: Record<string, string>;
 }
 
 export interface ImportSummary {
@@ -235,6 +256,46 @@ export async function exportBackup() {
   const zipped = zipSync(entries, { level: 1 });
   const stamp = new Date().toISOString().slice(0, 10);
   downloadBlob(`RecallSoro-backup-${stamp}.zip`, new Blob([zipped as BlobPart], { type: 'application/zip' }));
+}
+
+export async function importSnapshotJson(jsonText: string): Promise<ImportSummary> {
+  const meta = JSON.parse(jsonText) as BackupMeta;
+  if (meta.app !== 'RecallSoro' || meta.version !== 1) throw new Error('不是有效的 RecallSoro 快照文件');
+
+  const summary: ImportSummary = {
+    capturesAdded: 0,
+    experiencesAdded: 0,
+    experiencesMerged: 0,
+    collectionsMerged: 0,
+  };
+
+  await db.transaction('rw', [db.captures, db.experiences, db.templates, db.collections, db.relations], async () => {
+    for (const c of meta.captures) {
+      if (!(await db.captures.get(c.id))) {
+        await db.captures.put({ ...c });
+        summary.capturesAdded += 1;
+      }
+    }
+    for (const incoming of meta.experiences) {
+      const existing = await db.experiences.get(incoming.id);
+      if (!existing) {
+        await db.experiences.put(incoming);
+        summary.experiencesAdded += 1;
+      } else {
+        await db.experiences.put({ ...existing, ...incoming, updatedAt: now() });
+        summary.experiencesMerged += 1;
+      }
+    }
+    for (const col of meta.collections) {
+      await db.collections.put(col);
+      summary.collectionsMerged += 1;
+    }
+    for (const r of meta.relations ?? []) {
+      if (!(await db.relations.get(r.id))) await db.relations.put(r);
+    }
+  });
+
+  return summary;
 }
 
 export async function importBackup(file: File, mode: 'merge' | 'replace' = 'merge'): Promise<ImportSummary> {
@@ -290,10 +351,10 @@ export async function importBackup(file: File, mode: 'merge' | 'replace' = 'merg
       await db.relations.bulkPut(meta.relations);
       await db.settings.bulkPut(meta.settings);
     });
+    scheduleSnapshotSync();
     return summary;
   }
 
-  // 增量合并模式：先准备落盘，再进事务写入
   const existingCaptures = await db.captures.toArray();
   const shaMap = new Map(existingCaptures.filter((c) => c.sha256).map((c) => [c.sha256, c.id]));
   const existingCapIds = new Set(existingCaptures.map((c) => c.id));
@@ -378,5 +439,6 @@ export async function importBackup(file: File, mode: 'merge' | 'replace' = 'merg
     }
   });
 
+  scheduleSnapshotSync();
   return summary;
 }

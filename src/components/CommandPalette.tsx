@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   CalendarDays,
   Inbox,
+  LayoutDashboard,
   LayoutGrid,
   Moon,
   Search,
@@ -84,6 +85,17 @@ export function CommandPalette({
         },
       },
       {
+        id: 'nav-dashboard',
+        group: '导航',
+        title: '档案总览',
+        subtitle: '年度分布、智能归属建议、待补齐证书与证件提醒',
+        icon: LayoutDashboard,
+        run: () => {
+          navigate('/dashboard');
+          onClose();
+        },
+      },
+      {
         id: 'nav-inbox',
         group: '导航',
         title: '统一收件箱',
@@ -98,7 +110,7 @@ export function CommandPalette({
         id: 'nav-collections',
         group: '导航',
         title: '台账与模板',
-        subtitle: '查看全部竞赛台账、表格筛选与导出',
+        subtitle: '查看全部竞赛、项目、证件台账与导出',
         icon: LayoutGrid,
         run: () => {
           navigate('/collections');

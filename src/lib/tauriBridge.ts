@@ -16,6 +16,8 @@ export interface StorageInfo {
   blobsDir: string;
   blobCount: number;
   totalBytes: number;
+  hasSnapshot: boolean;
+  snapshotBytes: number;
 }
 
 export interface StoredBlobResult {
@@ -101,13 +103,38 @@ export async function readBlobFromLocalDisk(sha256: string, mimeType: string): P
   }
 }
 
-/** 透明解析资料原件：优先内存/IndexedDB Blob，否则从 Tauri 本地 blobs 目录读取 */
 export async function resolveCaptureBlob(capture: Capture): Promise<Blob | null> {
   if (capture.blob) return capture.blob;
   if (capture.sha256) {
     return readBlobFromLocalDisk(capture.sha256, capture.mimeType);
   }
   return null;
+}
+
+export async function writeLedgerSnapshotToDisk(): Promise<number> {
+  const captures = await db.captures.toArray();
+  const payload = {
+    app: 'RecallSoro',
+    version: 1,
+    savedAt: new Date().toISOString(),
+    captures: captures.map(({ blob: _b, ...rest }) => rest),
+    experiences: await db.experiences.toArray(),
+    templates: await db.templates.toArray(),
+    collections: await db.collections.toArray(),
+    relations: await db.relations.toArray(),
+    settings: await db.settings.toArray(),
+  };
+  return tauriInvoke<number>('write_ledger_snapshot', {
+    jsonText: JSON.stringify(payload, null, 2),
+  });
+}
+
+export async function readLedgerSnapshotFromDisk(): Promise<string> {
+  return tauriInvoke<string>('read_ledger_snapshot');
+}
+
+export async function runLocalOcr(sha256: string): Promise<string> {
+  return tauriInvoke<string>('ocr_blob_windows', { sha256 });
 }
 
 export async function getStorageInfo(): Promise<StorageInfo | null> {
@@ -139,7 +166,6 @@ export async function pollLanDropInbox(): Promise<LanDropItem[]> {
   return tauriInvoke<LanDropItem[]>('poll_lan_drop_inbox');
 }
 
-/** 将 IndexedDB 中已有 Blob 迁移到 Tauri 本地原件目录并释放 IndexedDB 空间 */
 export async function migrateIndexedDbBlobsToDisk(): Promise<{ migrated: number; freedBytes: number }> {
   if (!isTauriDesktop()) {
     throw new Error('仅在 Tauri 桌面端支持本地落盘迁移');
@@ -156,5 +182,6 @@ export async function migrateIndexedDbBlobsToDisk(): Promise<{ migrated: number;
       migrated += 1;
     }
   }
+  await writeLedgerSnapshotToDisk().catch(() => undefined);
   return { migrated, freedBytes };
 }

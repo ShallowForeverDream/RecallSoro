@@ -4,11 +4,13 @@ import {
   ArrowLeft,
   CalendarDays,
   Eye,
+  History,
   Image as ImageIcon,
   Link2,
   Plus,
   Save,
   Search,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Trophy,
@@ -28,6 +30,8 @@ import {
   setCompField,
 } from '../lib/competition';
 import { Chip, Empty, Field, Modal, PageHead, useToast } from '../components/common';
+import { HistoryDrawer } from '../components/HistoryDrawer';
+import { RedactionEditor } from '../components/RedactionEditor';
 
 const precisionLabel: Record<TimePrecision, string> = {
   exact: '精确到日',
@@ -290,6 +294,8 @@ export function ExperienceDetail() {
   const [allCaptures, setAllCaptures] = useState<Capture[]>([]);
   const [pickTargetSlot, setPickTargetSlot] = useState<string | null>(null);
   const [previewCap, setPreviewCap] = useState<Capture | null>(null);
+  const [redactingCap, setRedactingCap] = useState<Capture | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const slotFileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const backTo = (location.state as { from?: string } | null)?.from ?? '/experiences';
@@ -446,7 +452,7 @@ export function ExperienceDetail() {
         title={exp.title}
         subtitle={
           isComp
-            ? '补充赛事分级、奖项与证书原件，修改后点击右上角保存'
+            ? '补充赛事分级、奖项与证书原件，每次保存自动留存历史快照支持回滚'
             : '编辑这段经历的详细信息，并关联收件箱里的原件资料'
         }
         badge={
@@ -468,6 +474,9 @@ export function ExperienceDetail() {
         }
         actions={
           <>
+            <button className="btn" onClick={() => setHistoryOpen(true)}>
+              <History size={15} /> 历史版本
+            </button>
             <button className="btn primary" onClick={() => void persist(exp, '已保存经历')}>
               <Save size={15} /> 保存修改
             </button>
@@ -849,7 +858,40 @@ export function ExperienceDetail() {
           <div className="lightbox-wrap">
             <LightboxPreview capture={previewCap} />
           </div>
+          {previewCap.kind === 'image' && (
+            <div className="modal-actions">
+              <button
+                className="btn"
+                onClick={() => {
+                  const target = previewCap;
+                  setPreviewCap(null);
+                  setRedactingCap(target);
+                }}
+              >
+                <ShieldCheck size={14} /> 无损隐私脱敏
+                {previewCap.redactions?.length ? ` (${previewCap.redactions.length})` : ''}
+              </button>
+            </div>
+          )}
         </Modal>
+      )}
+
+      {redactingCap && (
+        <RedactionEditor
+          capture={redactingCap}
+          onClose={() => setRedactingCap(null)}
+          onSaved={() => void reload()}
+        />
+      )}
+
+      {historyOpen && (
+        <HistoryDrawer
+          entityId={exp.id}
+          onClose={() => setHistoryOpen(false)}
+          onRestore={async (snap) => {
+            await persist({ ...exp, ...snap, id: exp.id });
+          }}
+        />
       )}
     </div>
   );

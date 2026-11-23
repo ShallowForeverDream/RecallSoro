@@ -4,11 +4,21 @@ export type TimePrecision = 'exact' | 'day' | 'month' | 'year' | 'range' | 'unkn
 
 export interface Fact {
   id: string;
-  type: 'filename' | 'text' | 'date' | 'tag' | 'dimensions' | 'url' | 'mime';
+  type: 'filename' | 'text' | 'date' | 'tag' | 'dimensions' | 'url' | 'mime' | 'exif' | 'ocr';
   value: string;
   confidence: number;
   source: 'local' | 'user';
   createdAt: string;
+}
+
+/** 归一化（0~1）无损脱敏遮罩框，绝不破坏原图 */
+export interface RedactionBox {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label?: string;
 }
 
 export interface Capture {
@@ -29,6 +39,10 @@ export interface Capture {
   note: string;
   tags: string[];
   facts: Fact[];
+  /** 本地离线 OCR 识别出的全文 */
+  ocrText?: string;
+  /** 无损脱敏遮罩坐标列表 */
+  redactions?: RedactionBox[];
 }
 
 export interface Experience {

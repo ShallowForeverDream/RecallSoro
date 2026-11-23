@@ -6,7 +6,9 @@ import {
   Image as ImageIcon,
   Link2,
   Plus,
+  ScanText,
   Search,
+  ShieldCheck,
   Smartphone,
   UploadCloud,
   Video,
@@ -23,9 +25,10 @@ import {
   saveFileCaptureDedup,
   uid,
 } from '../lib/utils';
-import { resolveCaptureBlob } from '../lib/tauriBridge';
+import { resolveCaptureBlob, runLocalOcr } from '../lib/tauriBridge';
 import { Chip, Empty, Field, Modal, PageHead, useToast } from '../components/common';
 import { LanDropModal } from '../components/LanDropModal';
+import { RedactionEditor } from '../components/RedactionEditor';
 
 function CapturePreview({ capture }: { capture: Capture }) {
   const [url, setUrl] = useState('');
@@ -127,6 +130,8 @@ export default function Inbox() {
   const [text, setText] = useState('');
   const [link, setLink] = useState('');
   const [lanOpen, setLanOpen] = useState(false);
+  const [redacting, setRedacting] = useState<Capture | null>(null);
+  const [ocrBusy, setOcrBusy] = useState(false);
   const folderRef = useRef<HTMLInputElement | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -191,6 +196,38 @@ export default function Inbox() {
     toast('已保存资料信息');
   };
 
+  const handleLocalOcr = async () => {
+    if (!selected || !selected.sha256) return;
+    setOcrBusy(true);
+    try {
+      const recognized = await runLocalOcr(selected.sha256);
+      if (!recognized) {
+        toast('未在图片中识别出文字');
+        return;
+      }
+      const nextFacts = [
+        ...selected.facts.filter((f) => f.type !== 'ocr'),
+        {
+          id: uid(),
+          type: 'ocr' as const,
+          value: recognized.slice(0, 260),
+          confidence: 0.85,
+          source: 'local' as const,
+          createdAt: now(),
+        },
+      ];
+      const updated: Capture = { ...selected, ocrText: recognized, facts: nextFacts };
+      await db.captures.put(updated);
+      setSelected(updated);
+      await reload();
+      toast('离线 OCR 识别完成，可在「档案总览」查看智能匹配建议');
+    } catch (e) {
+      toast(`OCR 失败：${String(e)}`);
+    } finally {
+      setOcrBusy(false);
+    }
+  };
+
   const createExperience = async () => {
     if (!selected) return;
     const id = uid();
@@ -225,7 +262,7 @@ export default function Inbox() {
     if (kindFilter !== 'all' && c.kind !== kindFilter) return false;
     if (!query.trim()) return true;
     const q = query.toLowerCase();
-    return [c.title, c.originalName, c.note, c.text ?? '', ...c.tags]
+    return [c.title, c.originalName, c.note, c.text ?? '', c.ocrText ?? '', ...c.tags]
       .join(' ')
       .toLowerCase()
       .includes(q);
@@ -235,7 +272,7 @@ export default function Inbox() {
     <div className="page">
       <PageHead
         title="统一收件箱"
-        subtitle="证书、合照、截图、PDF、一句话备忘都先扔进来，SHA-256 自动去重，稍后再关联到台账"
+        subtitle="证书、合照、截图、PDF、一句话备忘都先扔进来，SHA-256 自动去重并提取 EXIF 时间线索"
         actions={
           <>
             <button className="btn primary" onClick={() => setLanOpen(true)}>
@@ -298,7 +335,7 @@ export default function Inbox() {
           >
             <UploadCloud size={24} />
             <strong>拖拽图片、证书 PDF、视频到这里，或点击选择文件</strong>
-            <span className="muted small">桌面端自动落盘到本地目录并按 SHA-256 去重</span>
+            <span className="muted small">桌面端自动落盘到本地目录、提取 EXIF 拍摄日期并去重</span>
             <input
               ref={fileRef}
               type="file"
@@ -358,7 +395,7 @@ export default function Inbox() {
         <div className="search-box" style={{ maxWidth: 380 }}>
           <Search size={15} />
           <input
-            placeholder="搜索标题、文件名、备注、标签…"
+            placeholder="搜索标题、文件名、OCR 文字、备注、标签…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -398,6 +435,9 @@ export default function Inbox() {
                 </div>
                 <div className="capture-meta">
                   <Chip>{kindLabel[c.kind]}</Chip>
+                  {c.redactions && c.redactions.length > 0 && (
+                    <Chip tone="emerald">已脱敏</Chip>
+                  )}
                   <span className="tabular">{c.capturedAt ?? c.importedAt.slice(0, 10)}</span>
                 </div>
                 <div className="muted small">
@@ -412,9 +452,30 @@ export default function Inbox() {
       {selected && (
         <Modal title="资料详情" subtitle={selected.originalName} onClose={() => setSelected(null)} wide>
           <div className="detail-grid">
-            <div className="detail-preview">
-              <CapturePreview capture={selected} />
+            <div>
+              <div className="detail-preview">
+                <CapturePreview capture={selected} />
+              </div>
+              {selected.kind === 'image' && (
+                <div className="row-gap" style={{ marginTop: 10 }}>
+                  <button
+                    className="btn small"
+                    onClick={() => setRedacting(selected)}
+                  >
+                    <ShieldCheck size={13} /> 无损隐私脱敏
+                    {selected.redactions?.length ? ` (${selected.redactions.length})` : ''}
+                  </button>
+                  <button
+                    className="btn small"
+                    disabled={ocrBusy}
+                    onClick={() => void handleLocalOcr()}
+                  >
+                    <ScanText size={13} /> {ocrBusy ? '识别中…' : '本地离线 OCR'}
+                  </button>
+                </div>
+              )}
             </div>
+
             <div className="detail-form">
               <Field label="标题">
                 <input
@@ -443,7 +504,7 @@ export default function Inbox() {
                 />
               </Field>
               <div className="fact-block">
-                <strong>本地提取线索</strong>
+                <strong>本地提取线索（EXIF / OCR / 文件名）</strong>
                 {selected.facts.length === 0 ? (
                   <p className="muted small">暂无</p>
                 ) : (
@@ -469,6 +530,17 @@ export default function Inbox() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {redacting && (
+        <RedactionEditor
+          capture={redacting}
+          onClose={() => setRedacting(null)}
+          onSaved={(next) => {
+            setSelected(next);
+            void reload();
+          }}
+        />
       )}
 
       {lanOpen && <LanDropModal onClose={() => setLanOpen(false)} onReceived={() => void reload()} />}

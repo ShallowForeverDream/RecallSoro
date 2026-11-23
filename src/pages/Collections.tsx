@@ -5,6 +5,10 @@ import {
   ArrowLeft,
   BookOpen,
   Briefcase,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  MoreHorizontal,
   ExternalLink,
   FileSpreadsheet,
   FileText,
@@ -15,9 +19,11 @@ import {
   Link2,
   Map as MapIcon,
   Plus,
+  Printer,
   Save,
   Search,
   Settings,
+  ShieldCheck,
   Sparkles,
   Table2,
   Trophy,
@@ -49,7 +55,8 @@ import {
   isAwarded,
   setCompField,
 } from '../lib/competition';
-import { Chip, Empty, Field, Modal, PageHead, StatCard, useToast } from '../components/common';
+import { exportProofPortfolioPdf } from '../lib/pdfExport';
+import { Chip, DropdownMenu, Empty, Field, Modal, PageHead, StatCard, useToast } from '../components/common';
 
 const iconMap: Record<string, typeof Trophy> = {
   Trophy,
@@ -58,6 +65,7 @@ const iconMap: Record<string, typeof Trophy> = {
   GraduationCap,
   Sparkles,
   BookOpen,
+  ShieldCheck,
 };
 
 function CaptureThumb({ capture, className = 'story-image' }: { capture: Capture; className?: string }) {
@@ -79,6 +87,17 @@ function CaptureThumb({ capture, className = 'story-image' }: { capture: Capture
 
   if (url) return <img className={className} src={url} alt={capture.title} />;
   return null;
+}
+
+function getCredentialBadge(exp: Experience): { label: string; tone: 'danger' | 'warn' | 'emerald' | 'neutral' } {
+  const raw = (exp.customFields?.['有效期至'] ?? '').trim();
+  if (!raw) return { label: '长期有效', tone: 'emerald' };
+  const target = new Date(raw.slice(0, 10));
+  if (Number.isNaN(target.getTime())) return { label: raw, tone: 'neutral' };
+  const days = Math.ceil((target.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  if (days < 0) return { label: `已过期 ${Math.abs(days)} 天`, tone: 'danger' };
+  if (days <= 90) return { label: `剩 ${days} 天到期`, tone: 'warn' };
+  return { label: `至 ${raw.slice(0, 10)}`, tone: 'emerald' };
 }
 
 export function Collections() {
@@ -143,7 +162,7 @@ export function Collections() {
     <div className="page">
       <PageHead
         title="台账与模板"
-        subtitle="同一份原始资料只存一次，按竞赛、旅行、项目等台账视角随时查阅、核验与导出"
+        subtitle="竞赛、证件与资质、STAR 项目、旅行游记统一复用台账表格与佐证槽位"
         actions={
           <>
             <button className="btn" onClick={() => importRef.current?.click()}>
@@ -241,7 +260,7 @@ export function Collections() {
                       </>
                     ) : (
                       <span>
-                        <strong>{c.captureIds.length}</strong> 条资料
+                        <strong>{c.captureIds.length}</strong> 条独立资料
                       </span>
                     )}
                   </div>
@@ -255,7 +274,7 @@ export function Collections() {
       <section className="section-block">
         <div className="section-head">
           <h2 className="section-title">可用模板</h2>
-          <span className="muted small">选择模板快速搭建新台账</span>
+          <span className="muted small">所有模板均支持表格视图、右侧快编与佐证挂载</span>
         </div>
         <div className="template-grid">
           {templates.map((t) => {
@@ -301,7 +320,7 @@ export function Collections() {
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="例如：全部竞赛经历 / 2026 杭州旅行"
+              placeholder="例如：个人证件夹 / 开源与课程项目台账"
             />
           </Field>
           <div className="modal-actions">
@@ -345,6 +364,12 @@ export function CollectionDetail() {
   const [yearFilter, setYearFilter] = useState('all');
   const [sortMode, setSortMode] = useState<SortMode>('dateDesc');
 
+  // PDF 证明册弹窗状态
+  const [pdfOpen, setPdfOpen] = useState(false);
+  const [pdfRedact, setPdfRedact] = useState(true);
+  const [pdfIncludeImages, setPdfIncludeImages] = useState(true);
+  const [pdfBusy, setPdfBusy] = useState(false);
+
   // 右侧滑出快编抽屉状态
   const [drawerExp, setDrawerExp] = useState<Experience | null>(null);
   const [drawerSlot, setDrawerSlot] = useState<string>('证书照片');
@@ -364,9 +389,6 @@ export function CollectionDetail() {
     if (c) {
       const t = await db.templates.get(c.templateId);
       setTemplate(t ?? null);
-      if (c.templateId !== 'tpl-competition') {
-        setTab((prev) => (prev === 'table' ? 'timeline' : prev));
-      }
     }
   };
 
@@ -375,6 +397,8 @@ export function CollectionDetail() {
   }, [id]);
 
   const isCompetition = col?.templateId === 'tpl-competition';
+  const isCredential = col?.templateId === 'tpl-credential';
+  const isProject = col?.templateId === 'tpl-project';
   const captureMap = useMemo(() => new Map(captures.map((c) => [c.id, c])), [captures]);
 
   const memberExperiences = useMemo(() => {
@@ -383,7 +407,6 @@ export function CollectionDetail() {
     return experiences.filter((e) => idSet.has(e.id));
   }, [col, experiences]);
 
-  // 统计 KPI 与分级占比
   const kpi = useMemo(() => {
     const total = memberExperiences.length;
     let awarded = 0;
@@ -441,15 +464,18 @@ export function CollectionDetail() {
     const q = query.trim().toLowerCase();
     const list = memberExperiences.filter((e) => {
       const audit = auditCompetition(e);
-      if (auditFilter === 'missingCert' && !audit.missingCertificate) return false;
-      if (auditFilter === 'missingDate' && !audit.missingDate) return false;
-      if (auditFilter === 'missingGrade' && !audit.missingGrade) return false;
-      if (auditFilter === 'awarded' && !isAwarded(e)) return false;
-      if (auditFilter === 'hasEvidence' && audit.missingAnyEvidence) return false;
+      if (isCompetition) {
+        if (auditFilter === 'missingCert' && !audit.missingCertificate) return false;
+        if (auditFilter === 'missingDate' && !audit.missingDate) return false;
+        if (auditFilter === 'missingGrade' && !audit.missingGrade) return false;
+        if (auditFilter === 'awarded' && !isAwarded(e)) return false;
+        if (auditFilter === 'hasEvidence' && audit.missingAnyEvidence) return false;
 
-      if (groupFilter !== 'all' && getExperienceGroup(e) !== groupFilter) return false;
-      if (gradeFilter !== 'all' && getGradeBucket(getCompField(e, '湖大分级')) !== gradeFilter)
-        return false;
+        if (groupFilter !== 'all' && getExperienceGroup(e) !== groupFilter) return false;
+        if (gradeFilter !== 'all' && getGradeBucket(getCompField(e, '湖大分级')) !== gradeFilter)
+          return false;
+      }
+
       if (yearFilter !== 'all') {
         if (yearFilter === 'unknown') {
           if (e.startAt && /^\d{4}/.test(e.startAt)) return false;
@@ -473,13 +499,13 @@ export function CollectionDetail() {
     });
 
     return list.sort((a, b) => {
-      if (sortMode === 'grade') {
+      if (isCompetition && sortMode === 'grade') {
         const ga = GRADE_ORDER[getGradeBucket(getCompField(a, '湖大分级'))] ?? 9;
         const gb = GRADE_ORDER[getGradeBucket(getCompField(b, '湖大分级'))] ?? 9;
         if (ga !== gb) return ga - gb;
         return (b.startAt ?? '').localeCompare(a.startAt ?? '');
       }
-      if (sortMode === 'issues') {
+      if (isCompetition && sortMode === 'issues') {
         const ia = auditCompetition(a).issues.length;
         const ib = auditCompetition(b).issues.length;
         if (ia !== ib) return ib - ia;
@@ -492,7 +518,7 @@ export function CollectionDetail() {
       if (hasA !== hasB) return hasB - hasA;
       return sortMode === 'dateAsc' ? da.localeCompare(dbStr) : dbStr.localeCompare(da);
     });
-  }, [memberExperiences, query, auditFilter, groupFilter, gradeFilter, yearFilter, sortMode]);
+  }, [memberExperiences, isCompetition, query, auditFilter, groupFilter, gradeFilter, yearFilter, sortMode]);
 
   type TimelineMember = {
     key: string;
@@ -561,16 +587,23 @@ export function CollectionDetail() {
 
   const createRecordInCollection = async () => {
     const newId = uid();
+    const defaultTitle = isCompetition
+      ? '新竞赛记录'
+      : isCredential
+        ? '新证件记录'
+        : isProject
+          ? '新项目记录'
+          : '新经历记录';
     const newExp: Experience = {
       id: newId,
-      title: isCompetition ? '新竞赛记录' : '新经历记录',
+      title: defaultTitle,
       description: '',
       startAt: undefined,
       endAt: undefined,
       timePrecision: 'unknown',
       location: '',
       status: 'active',
-      tags: isCompetition ? ['竞赛'] : [],
+      tags: template ? [template.name] : [],
       captureIds: [],
       templateId: col.templateId,
       customFields: {},
@@ -649,6 +682,28 @@ export function CollectionDetail() {
     }
   };
 
+  const handleExportPdf = async () => {
+    setPdfBusy(true);
+    try {
+      const res = await exportProofPortfolioPdf(filteredRows, captures, {
+        title: col.title,
+        subtitle: col.description || `${template?.name ?? '个人'}经历证明汇编`,
+        applyRedaction: pdfRedact,
+        includeImages: pdfIncludeImages,
+      });
+      setPdfOpen(false);
+      toast(
+        res.openedPrintWindow
+          ? `已生成证明汇编（${res.totalRecords} 条记录、${res.embeddedImages} 张佐证图），请在打印窗口选择「另存为 PDF」`
+          : `已下载证明汇编 HTML（${res.totalRecords} 条记录），用浏览器打开打印即可保存 PDF`,
+      );
+    } catch (e) {
+      toast(`生成失败：${String(e)}`);
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   const handleMergeImport = async (file: File) => {
     try {
       const res = await importBackup(file, 'merge');
@@ -680,7 +735,7 @@ export function CollectionDetail() {
         subtitle={
           col.description ||
           (isCompetition
-            ? '点击任意行即可在右侧抽屉快速核验分级、奖项与补传证书，无需反复跳页'
+            ? '点击任意行即可在右侧抽屉快速核验分级、奖项与补传证书，支持一键导出 PDF 证明册'
             : template?.description || '自定义台账集合')
         }
         badge={<Chip tone={isCompetition ? 'gold' : 'accent'}>{template?.name ?? '自定义'}</Chip>}
@@ -689,34 +744,64 @@ export function CollectionDetail() {
             <button className="btn primary" onClick={() => void createRecordInCollection()}>
               <Plus size={15} /> 新增记录
             </button>
-            {isCompetition && (
-              <>
-                <button
-                  className="btn"
-                  onClick={() => {
-                    exportCompetitionCSV(filteredRows, col.title);
-                    toast(`已导出 ${filteredRows.length} 条记录为 CSV（Excel 可直接打开）`);
-                  }}
-                >
-                  <FileSpreadsheet size={15} /> 导出 CSV
-                </button>
-                <button
-                  className="btn"
-                  onClick={() => {
-                    exportCompetitionMarkdown(filteredRows, col.title);
-                    toast(`已导出 ${filteredRows.length} 条记录为 Markdown 简历表`);
-                  }}
-                >
-                  <FileText size={15} /> 导出 MD
-                </button>
-                <button className="btn" onClick={() => void handleExportEvidence()}>
-                  <FolderArchive size={15} /> 打包佐证
-                </button>
-              </>
-            )}
-            <button className="btn" onClick={() => importRef.current?.click()}>
-              <Upload size={15} /> 增量导入
-            </button>
+            <DropdownMenu
+              label="导出"
+              icon={<Download size={15} />}
+              items={[
+                {
+                  label: '导出 PDF 证明册',
+                  hint: '封面 + 目录表 + 脱敏证书附页',
+                  icon: <Printer size={15} />,
+                  onClick: () => setPdfOpen(true),
+                },
+                ...(isCompetition
+                  ? [
+                      {
+                        label: '导出 CSV 表格',
+                        hint: 'Excel 直接打开，适合综测与交表',
+                        icon: <FileSpreadsheet size={15} />,
+                        onClick: () => {
+                          exportCompetitionCSV(filteredRows, col.title);
+                          toast(`已导出 ${filteredRows.length} 条记录为 CSV`);
+                        },
+                      },
+                      {
+                        label: '导出 Markdown 简历表',
+                        hint: '直接粘贴到简历或个人主页',
+                        icon: <FileText size={15} />,
+                        onClick: () => {
+                          exportCompetitionMarkdown(filteredRows, col.title);
+                          toast(`已导出 ${filteredRows.length} 条记录为 Markdown`);
+                        },
+                      },
+                      {
+                        label: '打包佐证原件 ZIP',
+                        hint: '按「年月-比赛-奖项」自动分文件夹',
+                        icon: <FolderArchive size={15} />,
+                        onClick: () => void handleExportEvidence(),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+            <DropdownMenu
+              label="更多"
+              icon={<MoreHorizontal size={15} />}
+              items={[
+                {
+                  label: '增量导入台账 ZIP',
+                  hint: '按 ID / SHA-256 合并，不覆盖已有原图',
+                  icon: <Upload size={15} />,
+                  onClick: () => importRef.current?.click(),
+                },
+                {
+                  label: '管理台账成员',
+                  hint: '从已有经历和资料中勾选收录',
+                  icon: <Link2 size={15} />,
+                  onClick: () => setPickOpen(true),
+                },
+              ]}
+            />
             <input
               ref={importRef}
               type="file"
@@ -728,9 +813,6 @@ export function CollectionDetail() {
                 e.target.value = '';
               }}
             />
-            <button className="btn ghost" onClick={() => setPickOpen(true)}>
-              <Link2 size={15} /> 管理成员
-            </button>
           </>
         }
       />
@@ -844,7 +926,7 @@ export function CollectionDetail() {
             <div className="search-box">
               <Search size={15} />
               <input
-                placeholder="搜索竞赛名、奖项、颁奖单位、备注…"
+                placeholder="搜索名称、奖项、机构、技术栈或备注…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
@@ -957,11 +1039,16 @@ export function CollectionDetail() {
                 <thead>
                   <tr>
                     <th style={{ width: 108 }}>时间</th>
-                    <th>竞赛 / 经历名称</th>
+                    <th>名称</th>
                     {isCompetition && <th style={{ width: 106 }}>湖大分级</th>}
                     {isCompetition && <th style={{ width: 185 }}>奖项与成绩</th>}
-                    <th style={{ width: 155 }}>佐证与体检</th>
-                    <th style={{ width: 112, textAlign: 'right' }}>操作</th>
+                    {isCredential && <th style={{ width: 140 }}>类别 / 等级</th>}
+                    {isCredential && <th style={{ width: 150 }}>有效期状态</th>}
+                    {isProject && <th style={{ width: 180 }}>技术栈与角色</th>}
+                    {isProject && <th>量化成果</th>}
+                    {!isCompetition && !isCredential && !isProject && <th>地点 / 简介</th>}
+                    <th style={{ width: 145 }}>佐证材料</th>
+                    <th style={{ width: 108, textAlign: 'right' }}>操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -974,14 +1061,21 @@ export function CollectionDetail() {
                       .join(' · ');
                     const group = getExperienceGroup(e);
                     const isSelected = drawerExp?.id === e.id;
+                    const credBadge = isCredential ? getCredentialBadge(e) : null;
 
                     return (
                       <tr
                         key={e.id}
-                        className={`ledger-row grade-accent-${gradeTone(grade)} ${isSelected ? 'selected' : ''}`}
+                        className={`ledger-row ${isCompetition ? `grade-accent-${gradeTone(grade)}` : ''} ${isSelected ? 'selected' : ''}`}
                         onClick={() => {
-                          setDrawerExp(e);
-                          setDrawerSlot('证书照片');
+                          if (isCompetition) {
+                            setDrawerExp(e);
+                            setDrawerSlot('证书照片');
+                          } else {
+                            navigate(`/experiences/${e.id}`, {
+                              state: { from: `/collections/${col.id}` },
+                            });
+                          }
                         }}
                       >
                         <td className="col-date">
@@ -993,9 +1087,9 @@ export function CollectionDetail() {
                           <div className="cell-title">{e.title}</div>
                           <div className="cell-sub">
                             <Chip>{group}</Chip>
-                            {getCompField(e, '颁奖单位') && (
+                            {(getCompField(e, '颁奖单位') || e.customFields?.['发证机构']) && (
                               <span className="muted truncate-inline">
-                                {getCompField(e, '颁奖单位')}
+                                {getCompField(e, '颁奖单位') || e.customFields?.['发证机构']}
                               </span>
                             )}
                           </div>
@@ -1019,6 +1113,43 @@ export function CollectionDetail() {
                             {scoreRank && <div className="cell-sub muted tabular">{scoreRank}</div>}
                           </td>
                         )}
+                        {isCredential && (
+                          <td>
+                            <div className="cell-award">{e.customFields?.['成绩或等级'] || '—'}</div>
+                            {e.customFields?.['证件类别'] && (
+                              <div className="cell-sub muted">{e.customFields['证件类别']}</div>
+                            )}
+                          </td>
+                        )}
+                        {isCredential && credBadge && (
+                          <td>
+                            <Chip tone={credBadge.tone}>{credBadge.label}</Chip>
+                          </td>
+                        )}
+                        {isProject && (
+                          <td>
+                            <div className="cell-award">{e.customFields?.['角色'] || '—'}</div>
+                            {e.customFields?.['技术栈'] && (
+                              <div className="cell-sub muted truncate-inline">
+                                {e.customFields['技术栈']}
+                              </div>
+                            )}
+                          </td>
+                        )}
+                        {isProject && (
+                          <td>
+                            <span className="muted small">
+                              {(e.customFields?.['量化成果'] || e.description || '—').slice(0, 60)}
+                            </span>
+                          </td>
+                        )}
+                        {!isCompetition && !isCredential && !isProject && (
+                          <td>
+                            <span className="muted small">
+                              {[e.location, e.description].filter(Boolean).join(' · ').slice(0, 60) || '—'}
+                            </span>
+                          </td>
+                        )}
                         <td>
                           <div className="cell-evidence">
                             {audit.evidenceCount > 0 ? (
@@ -1027,11 +1158,11 @@ export function CollectionDetail() {
                                 {audit.evidenceCount} 份原件
                               </Chip>
                             ) : (
-                              <Chip tone={audit.missingCertificate ? 'danger' : 'neutral'}>
-                                {audit.missingCertificate ? '缺证书' : '暂无原件'}
+                              <Chip tone={isCompetition && audit.missingCertificate ? 'danger' : 'neutral'}>
+                                {isCompetition && audit.missingCertificate ? '缺证书' : '暂无原件'}
                               </Chip>
                             )}
-                            {audit.missingDate && <Chip tone="warn">缺日期</Chip>}
+                            {isCompetition && audit.missingDate && <Chip tone="warn">缺日期</Chip>}
                           </div>
                         </td>
                         <td
@@ -1042,13 +1173,18 @@ export function CollectionDetail() {
                         >
                           <button
                             className="btn small"
-                            title="打开右侧抽屉快速编辑与补图"
                             onClick={() => {
-                              setDrawerExp(e);
-                              setDrawerSlot('证书照片');
+                              if (isCompetition) {
+                                setDrawerExp(e);
+                                setDrawerSlot('证书照片');
+                              } else {
+                                navigate(`/experiences/${e.id}`, {
+                                  state: { from: `/collections/${col.id}` },
+                                });
+                              }
                             }}
                           >
-                            <UploadCloud size={13} /> 快编
+                            <UploadCloud size={13} /> {isCompetition ? '快编' : '编辑'}
                           </button>
                         </td>
                       </tr>
@@ -1125,14 +1261,65 @@ export function CollectionDetail() {
           </Field>
           <p className="hint-box">
             <AlertCircle size={14} style={{ verticalAlign: -2, marginRight: 6 }} />
-            每一条竞赛的具体字段（湖大分级、奖项、排名、证书槽位）保存在单条经历中，点击台账表格任意一行即可快速核验。
+            每一条记录的具体字段保存在单条经历中，点击台账表格任意一行即可快速核验与补充佐证。
           </p>
         </div>
       )}
 
-      {/* 右侧滑出快编抽屉 */}
-      {drawerExp && (
-        <div className="drawer-backdrop" onMouseDown={() => setDrawerExp(null)}>
+      {/* 导出 PDF 证明册弹窗 */}
+      {pdfOpen && (
+        <Modal
+          title="生成 PDF 获奖证明汇编"
+          subtitle={`将基于当前筛选出的 ${filteredRows.length} 条记录排版封面、汇总目录与证书附页`}
+          onClose={() => setPdfOpen(false)}
+        >
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={pdfRedact}
+              onChange={(e) => setPdfRedact(e.target.checked)}
+            />
+            <span>自动应用无损隐私脱敏遮罩（隐藏已框选的身份证/学号/二维码）</span>
+          </label>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={pdfIncludeImages}
+              onChange={(e) => setPdfIncludeImages(e.target.checked)}
+            />
+            <span>在汇总表后逐页附带高清佐证原图</span>
+          </label>
+          <p className="hint-box">
+            点击生成后会打开排版好的打印预览窗口，在打印机中选择「另存为 PDF」即可获得高清矢量文档。
+          </p>
+          <div className="modal-actions">
+            <button className="btn ghost" onClick={() => setPdfOpen(false)}>
+              取消
+            </button>
+            <button className="btn primary" disabled={pdfBusy} onClick={() => void handleExportPdf()}>
+              <Printer size={14} /> {pdfBusy ? '正在排版生成…' : '立即生成证明册'}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* 右侧滑出快编抽屉（支持上一条/下一条连续核验与 Ctrl+S 快捷保存） */}
+      {drawerExp && (() => {
+        const curIdx = filteredRows.findIndex((r) => r.id === drawerExp.id);
+        const prevRow = curIdx > 0 ? filteredRows[curIdx - 1] : null;
+        const nextRow = curIdx >= 0 && curIdx < filteredRows.length - 1 ? filteredRows[curIdx + 1] : null;
+        return (
+        <div
+          className="drawer-backdrop"
+          onMouseDown={() => setDrawerExp(null)}
+          onKeyDown={(ev) => {
+            if (ev.key === 'Escape') setDrawerExp(null);
+            if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') {
+              ev.preventDefault();
+              void saveDrawerExp();
+            }
+          }}
+        >
           <aside className="drawer-panel" onMouseDown={(e) => e.stopPropagation()}>
             <div className="drawer-head">
               <div style={{ minWidth: 0 }}>
@@ -1141,12 +1328,37 @@ export function CollectionDetail() {
                     {getCompField(drawerExp, '湖大分级') || '分级待确认'}
                   </Chip>
                   <span className="muted small tabular">{drawerExp.startAt ?? '时间待确认'}</span>
+                  {curIdx >= 0 && (
+                    <span className="muted small tabular">
+                      · {curIdx + 1}/{filteredRows.length}
+                    </span>
+                  )}
                 </div>
                 <h2 className="drawer-title">{drawerExp.title}</h2>
               </div>
-              <button className="icon-btn" onClick={() => setDrawerExp(null)} aria-label="关闭抽屉">
-                <X size={18} />
-              </button>
+              <div className="drawer-nav">
+                <button
+                  type="button"
+                  className="icon-btn"
+                  disabled={!prevRow}
+                  title="上一条"
+                  onClick={() => prevRow && setDrawerExp(prevRow)}
+                >
+                  <ChevronLeft size={17} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  disabled={!nextRow}
+                  title="下一条"
+                  onClick={() => nextRow && setDrawerExp(nextRow)}
+                >
+                  <ChevronRight size={17} />
+                </button>
+                <button className="icon-btn" onClick={() => setDrawerExp(null)} aria-label="关闭抽屉">
+                  <X size={18} />
+                </button>
+              </div>
             </div>
 
             <div className="drawer-body">
@@ -1341,7 +1553,8 @@ export function CollectionDetail() {
             </div>
           </aside>
         </div>
-      )}
+        );
+      })()}
 
       {pickOpen && (
         <Modal title="管理台账成员" onClose={() => setPickOpen(false)} wide>

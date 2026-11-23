@@ -1,5 +1,13 @@
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
-import { CheckCircle2, X } from 'lucide-react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { CheckCircle2, ChevronDown, X } from 'lucide-react';
 
 export function Modal({
   title,
@@ -14,6 +22,14 @@ export function Modal({
   children: ReactNode;
   wide?: boolean;
 }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div className={`modal ${wide ? 'modal-wide' : ''}`} onMouseDown={(e) => e.stopPropagation()}>
@@ -28,6 +44,73 @@ export function Modal({
         </div>
         <div className="modal-body">{children}</div>
       </div>
+    </div>
+  );
+}
+
+export interface MenuAction {
+  label: string;
+  hint?: string;
+  icon?: ReactNode;
+  onClick: () => void;
+}
+
+export function DropdownMenu({
+  label,
+  icon,
+  items,
+}: {
+  label: string;
+  icon?: ReactNode;
+  items: MenuAction[];
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="menu-wrap" ref={wrapRef}>
+      <button type="button" className="btn" onClick={() => setOpen((v) => !v)}>
+        {icon}
+        <span>{label}</span>
+        <ChevronDown size={14} className="muted" />
+      </button>
+      {open && (
+        <div className="menu-pop" role="menu">
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              className="menu-item"
+              onClick={() => {
+                setOpen(false);
+                item.onClick();
+              }}
+            >
+              {item.icon && <span className="menu-item-icon">{item.icon}</span>}
+              <span className="menu-item-copy">
+                <strong>{item.label}</strong>
+                {item.hint && <small>{item.hint}</small>}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

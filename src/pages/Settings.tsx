@@ -5,19 +5,31 @@ import {
   FolderOpen,
   HardDrive,
   RefreshCw,
+  RotateCcw,
+  Save,
   ShieldCheck,
   Smartphone,
   Upload,
 } from 'lucide-react';
 import { db } from '../db';
 import type { Capture } from '../types';
-import { exportBackup, extractFacts, humanSize, importBackup, now, uid } from '../lib/utils';
+import {
+  exportBackup,
+  extractFacts,
+  humanSize,
+  importBackup,
+  importSnapshotJson,
+  now,
+  uid,
+} from '../lib/utils';
 import {
   getStorageInfo,
   isTauriDesktop,
   migrateIndexedDbBlobsToDisk,
   openDataDir,
+  readLedgerSnapshotFromDisk,
   scanWatchFolder,
+  writeLedgerSnapshotToDisk,
   type StorageInfo,
 } from '../lib/tauriBridge';
 import { Chip, Field, PageHead, useToast } from '../components/common';
@@ -103,6 +115,33 @@ export default function Settings() {
     }
   };
 
+  const doSaveSnapshot = async () => {
+    setBusy(true);
+    try {
+      const bytes = await writeLedgerSnapshotToDisk();
+      loadStats();
+      toast(`元数据快照已写入本地目录（${humanSize(bytes)}）`);
+    } catch (e) {
+      toast(`写入快照失败：${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doRestoreSnapshot = async () => {
+    setBusy(true);
+    try {
+      const json = await readLedgerSnapshotFromDisk();
+      const res = await importSnapshotJson(json);
+      loadStats();
+      toast(`已从本地快照合并 ${res.experiencesAdded + res.experiencesMerged} 条经历`);
+    } catch (e) {
+      toast(`恢复失败：${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const doScanWatchFolder = async () => {
     if (!watchFolder.trim()) {
       toast('请先填写本机同步文件夹路径');
@@ -156,13 +195,13 @@ export default function Settings() {
     <div className="page">
       <PageHead
         title="设置与备份"
-        subtitle="本机原件落盘存储、手机扫码快传、同步目录吸入与增量迁移"
+        subtitle="原件与元数据同目录落盘（配合 Syncthing/网盘即可跨设备同步）、手机扫码快传与增量迁移"
       />
 
       <div className="settings-grid">
         <section className="panel">
           <div className="panel-head">
-            <h3>本机原件存储</h3>
+            <h3>本机原件与元数据快照</h3>
             <Chip tone={desktop ? 'emerald' : 'neutral'}>
               {desktop ? '桌面端本地目录' : '浏览器预览模式'}
             </Chip>
@@ -190,7 +229,12 @@ export default function Settings() {
 
           {diskInfo && (
             <p className="hint-box" style={{ wordBreak: 'break-all' }}>
-              本地原件目录：<code>{diskInfo.blobsDir}</code>
+              数据目录：<code>{diskInfo.dataDir}</code>
+              <br />
+              元数据快照：
+              {diskInfo.hasSnapshot
+                ? `ledger-snapshot.json (${humanSize(diskInfo.snapshotBytes)}) · 每次修改自动同步`
+                : '尚未生成，点击下方立即写入'}
             </p>
           )}
 
@@ -200,11 +244,23 @@ export default function Settings() {
               disabled={!desktop || busy}
               onClick={() => void openDataDir().catch((e) => toast(String(e)))}
             >
-              <FolderOpen size={15} /> 打开本地数据目录
+              <FolderOpen size={15} /> 打开数据目录
             </button>
+            <button
+              className="btn"
+              disabled={!desktop || busy}
+              onClick={() => void doSaveSnapshot()}
+            >
+              <Save size={15} /> 立即落盘快照
+            </button>
+            {desktop && diskInfo?.hasSnapshot && (
+              <button className="btn ghost" disabled={busy} onClick={() => void doRestoreSnapshot()}>
+                <RotateCcw size={14} /> 从快照恢复
+              </button>
+            )}
             {desktop && stats.idbBlobs > 0 && (
               <button className="btn primary" disabled={busy} onClick={() => void doMigrateToDisk()}>
-                <HardDrive size={15} /> 迁移 {stats.idbBlobs} 份缓存原件到本地磁盘
+                <HardDrive size={15} /> 迁移 {stats.idbBlobs} 份缓存原件到磁盘
               </button>
             )}
           </div>
@@ -295,7 +351,7 @@ export default function Settings() {
             <h3>隐私与识别边界</h3>
             <ShieldCheck size={17} className="muted" />
           </div>
-          <Field label="云端 AI 识别" hint="默认关闭，仅本地提取哈希、尺寸与日期线索">
+          <Field label="云端 AI 识别" hint="默认关闭；桌面端已内置 Windows 离线 OCR 与 EXIF 解析">
             <select
               value={cloudAi}
               onChange={(e) => {
@@ -304,15 +360,15 @@ export default function Settings() {
                 void db.settings.put({ key: 'cloudAi', value: v });
               }}
             >
-              <option value="off">关闭（本地优先）</option>
+              <option value="off">关闭（本地离线优先）</option>
               <option value="future">后续版本开放</option>
             </select>
           </Field>
           <p className="hint-box">
-            导出原件不会自动脱敏，外发证书前请自行检查身份证号、学号和二维码。
+            所有证书支持无损隐私脱敏遮罩；导出 PDF 证明册时可勾选自动应用脱敏，原件永远保持完整。
           </p>
           <p className="muted small" style={{ marginTop: 12 }}>
-            <strong>RecallSoro</strong> v0.3 · 个人电子经历总台账
+            <strong>RecallSoro</strong> v0.4 · 个人电子经历总台账
           </p>
         </section>
       </div>

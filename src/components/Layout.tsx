@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   CalendarDays,
   Database,
   Inbox,
+  LayoutDashboard,
   LayoutGrid,
   Moon,
   Search,
@@ -19,15 +20,16 @@ import { CommandPalette } from './CommandPalette';
 import { LanDropModal } from './LanDropModal';
 
 const nav = [
+  { to: '/dashboard', label: '档案总览', icon: LayoutDashboard },
   { to: '/', label: '统一收件箱', icon: Inbox, end: true },
   { to: '/collections', label: '台账与模板', icon: LayoutGrid },
   { to: '/experiences', label: '全部经历', icon: Sparkles },
   { to: '/timeline', label: '时间轴', icon: CalendarDays },
-  { to: '/search', label: '全局搜索', icon: Search },
   { to: '/settings', label: '设置与备份', icon: Settings },
 ];
 
 export default function Layout() {
+  const location = useLocation();
   const [stats, setStats] = useState({ captures: 0, experiences: 0, collections: 0 });
   const [pinnedComp, setPinnedComp] = useState<Collection | null>(null);
   const [cmdOpen, setCmdOpen] = useState(false);
@@ -52,26 +54,26 @@ export default function Layout() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  useEffect(() => {
-    let alive = true;
-    const refresh = async () => {
-      const [captures, experiences, cols] = await Promise.all([
-        db.captures.count(),
-        db.experiences.count(),
-        db.collections.toArray(),
-      ]);
-      if (!alive) return;
-      setStats({ captures, experiences, collections: cols.length });
-      const comp = cols.find((c) => c.templateId === 'tpl-competition') ?? null;
-      setPinnedComp(comp);
-    };
-    void refresh();
-    const timer = window.setInterval(refresh, 3000);
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
+  const refreshStats = useCallback(async () => {
+    const [captures, experiences, cols] = await Promise.all([
+      db.captures.count(),
+      db.experiences.count(),
+      db.collections.toArray(),
+    ]);
+    setStats({ captures, experiences, collections: cols.length });
+    setPinnedComp(cols.find((c) => c.templateId === 'tpl-competition') ?? null);
   }, []);
+
+  // 按需刷新（路由切换与窗口聚焦时），零后台空转轮询，保持极低能耗
+  useEffect(() => {
+    void refreshStats();
+  }, [location.pathname, refreshStats]);
+
+  useEffect(() => {
+    const onFocus = () => void refreshStats();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshStats]);
 
   const toggleTheme = () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
 
@@ -93,7 +95,7 @@ export default function Layout() {
           title="快捷键 Ctrl + K / ⌘ + K"
         >
           <Search size={14} />
-          <span className="nav-label">快速搜索或跳转…</span>
+          <span className="nav-label">搜索或快速跳转…</span>
           <kbd className="kbd">⌘K</kbd>
         </button>
 
@@ -181,7 +183,12 @@ export default function Layout() {
         onToggleTheme={toggleTheme}
       />
 
-      {lanOpen && <LanDropModal onClose={() => setLanOpen(false)} />}
+      {lanOpen && (
+        <LanDropModal
+          onClose={() => setLanOpen(false)}
+          onReceived={() => void refreshStats()}
+        />
+      )}
     </div>
   );
 }
