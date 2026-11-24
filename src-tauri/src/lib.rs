@@ -1,3 +1,4 @@
+mod ai;
 mod lan_drop;
 mod ledger;
 mod ocr;
@@ -8,6 +9,7 @@ pub mod ocr_pub {
     pub use crate::ocr::{ocr_image_file, OcrResult, SensitiveRegion};
 }
 
+use ai::{call_cloud_ai, test_cloud_ai};
 use lan_drop::{LanDropItem, LanDropState, LanDropStatus};
 use ledger::{LedgerSnapshotInfo, LedgerVersion};
 use ocr::OcrResult;
@@ -159,7 +161,9 @@ pub fn run() {
             list_ledger_versions,
             restore_ledger_version,
             read_cjk_font_base64,
-            get_ledger_dir_info
+            get_ledger_dir_info,
+            call_cloud_ai,
+            test_cloud_ai
         ])
         .run(tauri::generate_context!())
         .expect("error while running RecallSoro");

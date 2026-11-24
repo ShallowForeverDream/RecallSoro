@@ -11,7 +11,7 @@ import {
   Trophy,
 } from 'lucide-react';
 import { db } from '../db';
-import type { Capture, Collection, Experience } from '../types';
+import type { Capture, Collection, Experience, FactCandidate } from '../types';
 import {
   auditCompetition,
   getCompField,
@@ -27,6 +27,13 @@ import {
   type MatchSuggestion,
 } from '../lib/intelligence';
 import { now, recordHistory } from '../lib/utils';
+import {
+  acceptCandidateField,
+  extractFieldsWithCloud,
+  listPendingCandidates,
+  loadCloudAiConfig,
+  rejectCandidate,
+} from '../lib/cloudAi';
 import { Chip, PageHead, StatCard, useToast } from '../components/common';
 import { LanDropModal } from '../components/LanDropModal';
 
@@ -38,16 +45,23 @@ export default function Dashboard() {
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [lanOpen, setLanOpen] = useState(false);
+  const [candidates, setCandidates] = useState<FactCandidate[]>([]);
+  const [aiConfig, setAiConfig] = useState<Awaited<ReturnType<typeof loadCloudAiConfig>> | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
 
   const reload = () =>
     void Promise.all([
       db.experiences.toArray(),
       db.captures.orderBy('importedAt').reverse().toArray(),
       db.collections.toArray(),
-    ]).then(([e, c, cols]) => {
+      listPendingCandidates(),
+      loadCloudAiConfig(),
+    ]).then(([e, c, cols, cands, cfg]) => {
       setExperiences(e);
       setCaptures(c);
       setCollections(cols);
+      setCandidates(cands);
+      setAiConfig(cfg);
     });
 
   useEffect(() => {
@@ -279,6 +293,121 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
+          )}
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <h3>云端 AI 候选字段</h3>
+            <Chip tone={aiConfig?.enabled ? 'accent' : 'neutral'}>
+              {aiConfig?.enabled ? '已启用 · 逐字段确认' : '未启用'}
+            </Chip>
+          </div>
+          {!aiConfig?.enabled ? (
+            <p className="muted small">
+              在「设置与备份 → 云端 AI」里填入你自己的 Endpoint、API Key 与模型后即可启用。
+              默认关闭；证书 OCR 后点「抽取字段」，结果只会进入这里等你逐项确认，不会直接写进台账。
+            </p>
+          ) : (
+            <>
+              <div className="row-gap" style={{ marginBottom: 12 }}>
+                <button
+                  className="btn small"
+                  disabled={aiBusy}
+                  onClick={() => {
+                    void (async () => {
+                      // 优先挑还没被任何经历引用的已 OCR 资料
+                      const usedIds = new Set(experiences.flatMap((x) => x.captureIds));
+                      const withOcr = captures.filter((c) => c.ocrText && !usedIds.has(c.id));
+                      const target = withOcr[0] ?? captures.find((c) => c.ocrText);
+                      if (!target) {
+                        toast('没有已 OCR 的资料，请先在收件箱对证书执行「本地 OCR」');
+                        return;
+                      }
+                      setAiBusy(true);
+                      try {
+                        await extractFieldsWithCloud(target, experiences, aiConfig);
+                        toast('已生成候选字段，请在下方逐项确认');
+                        reload();
+                      } catch (e) {
+                        toast(`抽取失败：${String(e)}`);
+                      } finally {
+                        setAiBusy(false);
+                      }
+                    })();
+                  }}
+                >
+                  <Sparkles size={13} /> {aiBusy ? '抽取中…' : '抽取下一张证书字段'}
+                </button>
+                <span className="muted small">
+                  待确认 {candidates.length} 条 · 只发送脱敏文本
+                </span>
+              </div>
+
+              {candidates.length === 0 ? (
+                <p className="muted small">暂无待确认候选。</p>
+              ) : (
+                <div className="suggest-list">
+                  {candidates.map((cand) => {
+                    const cap = captures.find((x) => x.id === cand.captureId);
+                    const exp = experiences.find((x) => x.id === cand.experienceId);
+                    return (
+                      <div key={cand.id} className="suggest-item ai-candidate">
+                        <div className="suggest-copy" style={{ flex: 1 }}>
+                          <div className="suggest-title">
+                            <ImageIcon size={14} className="muted" />
+                            <strong>{cap?.title ?? '未知资料'}</strong>
+                            {exp ? (
+                              <>
+                                <ArrowRight size={13} className="muted" />
+                                <span>{exp.title}</span>
+                              </>
+                            ) : (
+                              <Chip tone="warn">未匹配到台账</Chip>
+                            )}
+                          </div>
+                          <div className="candidate-fields">
+                            {Object.entries(cand.fields).map(([key, f]) => (
+                              <div key={key} className="candidate-field">
+                                <span className="candidate-key">{key}</span>
+                                <span className="candidate-value">{f.value}</span>
+                                <span className="muted small tabular">
+                                  {Math.round(f.confidence * 100)}%
+                                </span>
+                                <button
+                                  className="btn small primary"
+                                  onClick={() => {
+                                    void (async () => {
+                                      await acceptCandidateField(cand.id, key);
+                                      toast(`已接受「${key}」并写入台账`);
+                                      reload();
+                                    })();
+                                  }}
+                                >
+                                  接受
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <button
+                          className="btn small ghost"
+                          onClick={() => {
+                            void (async () => {
+                              await rejectCandidate(cand.id);
+                              toast('已拒绝该候选');
+                              reload();
+                            })();
+                          }}
+                        >
+                          全部拒绝
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
         </section>
 

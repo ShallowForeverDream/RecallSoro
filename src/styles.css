@@ -2723,3 +2723,47 @@ p {
 .version-row:last-child {
   border-bottom: none;
 }
+
+/* 云端 AI 候选字段面板 */
+.ai-config-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-config-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.candidate-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.candidate-field {
+  display: grid;
+  grid-template-columns: 96px 1fr 48px auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  background: var(--surface-2, rgba(127,127,127,0.06));
+  border-radius: 6px;
+}
+
+.candidate-key {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.candidate-value {
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.suggest-item.ai-candidate {
+  align-items: flex-start;
+}

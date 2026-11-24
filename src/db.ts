@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { Capture, Collection, Experience, Relation, Setting, Template } from './types';
+import type { Capture, Collection, Experience, FactCandidate, Relation, Setting, Template } from './types';
+import { DEFAULT_CLOUD_AI_CONFIG } from './types';
 
 export interface HistoryRecord {
   id: string;
@@ -17,6 +18,8 @@ class RecallDatabase extends Dexie {
   relations!: EntityTable<Relation, 'id'>;
   settings!: EntityTable<Setting, 'key'>;
   history!: EntityTable<HistoryRecord, 'id'>;
+  /** 云端 AI 候选，物理隔离于 facts/experiences */
+  candidates!: EntityTable<FactCandidate, 'id'>;
 
   constructor() {
     super('recallsoro');
@@ -30,6 +33,9 @@ class RecallDatabase extends Dexie {
     });
     this.version(2).stores({
       history: 'id, entityType, entityId, createdAt',
+    });
+    this.version(3).stores({
+      candidates: 'id, captureId, experienceId, status, createdAt',
     });
   }
 }
@@ -170,6 +176,9 @@ export const SYSTEM_TEMPLATES: Template[] = [
 export async function initDatabase() {
   await db.templates.bulkPut(SYSTEM_TEMPLATES);
   if (!(await db.settings.get('cloudAi'))) {
-    await db.settings.put({ key: 'cloudAi', value: 'off' });
+    await db.settings.put({
+      key: 'cloudAi',
+      value: JSON.stringify(DEFAULT_CLOUD_AI_CONFIG),
+    });
   }
 }

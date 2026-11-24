@@ -12,7 +12,9 @@ import {
   Upload,
 } from 'lucide-react';
 import { db } from '../db';
-import type { Capture } from '../types';
+import type { Capture, CloudAiConfig } from '../types';
+import { DEFAULT_CLOUD_AI_CONFIG } from '../types';
+import { saveCloudAiConfig, testCloudAi as testCloudAiApi } from '../lib/cloudAi';
 import {
   exportBackup,
   extractFacts,
@@ -38,11 +40,23 @@ import {
 import { Chip, Field, PageHead, useToast } from '../components/common';
 import { LanDropModal } from '../components/LanDropModal';
 
+function parseAiConfig(value: unknown): CloudAiConfig {
+  if (typeof value !== 'string') return { ...DEFAULT_CLOUD_AI_CONFIG };
+  try {
+    const parsed = JSON.parse(value) as CloudAiConfig;
+    if (typeof parsed !== 'object' || !('endpoint' in parsed)) return { ...DEFAULT_CLOUD_AI_CONFIG };
+    return { ...DEFAULT_CLOUD_AI_CONFIG, ...parsed };
+  } catch {
+    return { ...DEFAULT_CLOUD_AI_CONFIG };
+  }
+}
+
 export default function Settings() {
   const toast = useToast();
   const [stats, setStats] = useState({ captures: 0, experiences: 0, collections: 0, bytes: 0, idbBlobs: 0 });
   const [diskInfo, setDiskInfo] = useState<StorageInfo | null>(null);
-  const [cloudAi, setCloudAi] = useState('off');
+  const [aiConfig, setAiConfig] = useState<CloudAiConfig>({ ...DEFAULT_CLOUD_AI_CONFIG });
+  const [aiTesting, setAiTesting] = useState(false);
   const [watchFolder, setWatchFolder] = useState('');
   const [busy, setBusy] = useState(false);
   const [lanOpen, setLanOpen] = useState(false);
@@ -66,7 +80,7 @@ export default function Settings() {
         bytes: c.reduce((sum, x) => sum + x.sizeBytes, 0),
         idbBlobs: c.filter((x) => Boolean(x.blob)).length,
       });
-      setCloudAi(s?.value ?? 'off');
+      setAiConfig(s?.value ? parseAiConfig(s.value) : { ...DEFAULT_CLOUD_AI_CONFIG });
       setWatchFolder(wf?.value ?? '');
       setDiskInfo(disk);
     });
@@ -402,27 +416,133 @@ export default function Settings() {
 
         <section className="panel">
           <div className="panel-head">
-            <h3>隐私与识别边界</h3>
+            <h3>云端 AI（自配接口 · BYOK）</h3>
             <ShieldCheck size={17} className="muted" />
           </div>
-          <Field label="云端 AI 识别" hint="默认关闭；桌面端已内置 Windows 离线 OCR 与 EXIF 解析">
-            <select
-              value={cloudAi}
-              onChange={(e) => {
-                const v = e.target.value;
-                setCloudAi(v);
-                void db.settings.put({ key: 'cloudAi', value: v });
-              }}
-            >
-              <option value="off">关闭（本地离线优先）</option>
-              <option value="future">后续版本开放</option>
-            </select>
-          </Field>
-          <p className="hint-box">
+          <p className="hint-box" style={{ marginBottom: 14 }}>
+            默认关闭。由于 API Key 由你自己提供，RecallSoro 只负责按 OpenAI chat/completions 格式发请求；
+            发送前会先在本地脱敏（手机号 / 身份证 / 学号 / 邮箱），且 AI 结果只进入「待确认候选」，不会直接写入台账。
+            桌面端已内置 Windows 离线 OCR 与 EXIF 解析，不开云端也能正常使用。
+          </p>
+
+          <div className="ai-config-grid">
+            <Field label="启用云端 AI">
+              <div className="row-gap">
+                <button
+                  type="button"
+                  className={`btn small ${aiConfig.enabled ? 'primary' : ''}`}
+                  onClick={() => {
+                    const next = { ...aiConfig, enabled: !aiConfig.enabled, updatedAt: now() };
+                    setAiConfig(next);
+                    void saveCloudAiConfig(next);
+                  }}
+                >
+                  {aiConfig.enabled ? '● 已开启' : '○ 已关闭（本地离线优先）'}
+                </button>
+                <span className="muted small">默认关闭；仅在你显式开启后才会发起网络请求</span>
+              </div>
+            </Field>
+
+            <Field label="Endpoint URL" hint="完整 chat 端点，例如 https://api.deepseek.com/v1/chat/completions">
+              <input
+                className="input"
+                type="url"
+                value={aiConfig.endpoint}
+                placeholder="https://api.example.com/v1/chat/completions"
+                onChange={(e) => setAiConfig({ ...aiConfig, endpoint: e.target.value })}
+                onBlur={() => void saveCloudAiConfig(aiConfig)}
+              />
+            </Field>
+
+            <Field label="API Key" hint="只保存在本机浏览器数据库中，不会上传；请勿与他人共享">
+              <input
+                className="input"
+                type="password"
+                value={aiConfig.apiKey}
+                placeholder="sk-..."
+                onChange={(e) => setAiConfig({ ...aiConfig, apiKey: e.target.value })}
+                onBlur={() => void saveCloudAiConfig(aiConfig)}
+              />
+            </Field>
+
+            <div className="ai-config-row">
+              <Field label="请求方式" hint="多数服务用 POST；少数网关需要 GET">
+                <select
+                  value={aiConfig.method}
+                  onChange={(e) => {
+                    const next = { ...aiConfig, method: e.target.value as 'POST' | 'GET' };
+                    setAiConfig(next);
+                    void saveCloudAiConfig(next);
+                  }}
+                >
+                  <option value="POST">POST</option>
+                  <option value="GET">GET</option>
+                </select>
+              </Field>
+              <Field label="模型名" hint="如 deepseek-chat / glm-4-flash / gpt-4o-mini">
+                <input
+                  className="input"
+                  value={aiConfig.model}
+                  placeholder="deepseek-chat"
+                  onChange={(e) => setAiConfig({ ...aiConfig, model: e.target.value })}
+                  onBlur={() => void saveCloudAiConfig(aiConfig)}
+                />
+              </Field>
+            </div>
+
+            <Field label="发送前本地脱敏" hint="关闭后只发送空的候选提示，不推荐">
+              <label className="row-gap small" style={{ alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={aiConfig.allowTextUpload}
+                  onChange={(e) => {
+                    const next = { ...aiConfig, allowTextUpload: e.target.checked };
+                    setAiConfig(next);
+                    void saveCloudAiConfig(next);
+                  }}
+                />
+                发送脱敏后的 OCR 文本（号码已打码）
+              </label>
+            </Field>
+
+            <div className="row-gap" style={{ marginTop: 8 }}>
+              <button
+                className="btn small"
+                disabled={aiTesting || !aiConfig.endpoint || !aiConfig.apiKey}
+                onClick={() => {
+                  void (async () => {
+                    setAiTesting(true);
+                    try {
+                      toast(await testCloudAiApi(aiConfig));
+                    } catch (e) {
+                      toast(`连接失败：${String(e)}`);
+                    } finally {
+                      setAiTesting(false);
+                    }
+                  })();
+                }}
+              >
+                <RefreshCw size={13} /> {aiTesting ? '测试中…' : '测试连接'}
+              </button>
+              <button
+                className="btn small ghost"
+                onClick={() => {
+                  const next = { ...DEFAULT_CLOUD_AI_CONFIG };
+                  setAiConfig(next);
+                  void saveCloudAiConfig(next);
+                  toast('已恢复默认（关闭）');
+                }}
+              >
+                恢复默认
+              </button>
+            </div>
+          </div>
+
+          <p className="hint-box" style={{ marginTop: 14 }}>
             所有证书支持无损隐私脱敏遮罩；导出 PDF 证明册时可勾选自动应用脱敏，原件永远保持完整。
           </p>
           <p className="muted small" style={{ marginTop: 12 }}>
-            <strong>RecallSoro</strong> v0.4 · 个人电子经历总台账
+            <strong>RecallSoro</strong> v0.5 · 个人电子经历总台账
           </p>
         </section>
       </div>
